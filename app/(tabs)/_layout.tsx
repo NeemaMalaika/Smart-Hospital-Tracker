@@ -16,11 +16,18 @@ export default function TabLayout() {
   const checkAuth = async () => {
     try {
       const auth = await AsyncStorage.getItem('isAuthenticated');
-      setIsAuthenticated(auth === 'true');
+      const isAuth = auth === 'true';
+      setIsAuthenticated(isAuth);
       
-      // Redirect based on auth status
-      if (auth !== 'true' && segments[1] !== 'login') {
+      // Redirect logic
+      const onLoginPage = segments[1] === 'login';
+      
+      if (!isAuth && !onLoginPage) {
+        // Not authenticated and not on login -> redirect to login
         router.replace('/(tabs)/login');
+      } else if (isAuth && onLoginPage) {
+        // Authenticated but still on login -> redirect to home
+        router.replace('/(tabs)');
       }
     } catch (error) {
       console.error('Auth check error:', error);
@@ -30,7 +37,7 @@ export default function TabLayout() {
   };
 
   if (isLoading) {
-    return null; // or a loading screen
+    return null;
   }
 
   return (
