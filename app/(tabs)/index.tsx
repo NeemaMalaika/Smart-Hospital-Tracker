@@ -196,6 +196,7 @@ export default function EnvironmentalMonitor() {
   // API INTEGRATION
   const getAuthHeaders = () => ({
     'Content-Type': 'application/json',
+    'API-KEY': '49643a60-0aff-4a88-8e65-30ea428df8ee',
   });
 
   const fetchNodes = async () => {
@@ -255,24 +256,30 @@ export default function EnvironmentalMonitor() {
     }
   };
 
-  const fetchAllData = async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
+ const fetchAllData = async () => {
+  if (!selectedNode) {
+    console.warn('fetchAllData skipped: selectedNode is null');
+    return;
+  }
 
-      await Promise.all([
-        fetchCurrentSensorData(),
-        fetchSensorHistory(),
-      ]);
+  try {
+    setIsLoading(true);
+    setError(null);
 
-      setLastUpdated(new Date());
-    } catch (error) {
-      console.error('Error fetching data:', error);
-      setError('Failed to fetch data from server');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    await Promise.all([
+      fetchCurrentSensorData(),
+      fetchSensorHistory(),
+    ]);
+
+    setLastUpdated(new Date());
+  } catch (error) {
+    console.error('Error fetching data:', error);
+    setError('Failed to fetch data from server');
+  } finally {
+    setIsLoading(false);
+  }
+};
+
 
   const fetchCurrentSensorData = async () => {
     try {
