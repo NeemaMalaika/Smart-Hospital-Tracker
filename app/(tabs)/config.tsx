@@ -280,7 +280,7 @@ export default function ConfigScreen() {
       fields: [
         { key: 'mqtt_server', label: 'MQTT Server' },
         { key: 'mqtt_port', label: 'MQTT Port', keyboard: 'numeric' },
-        { key: 'mqtt_client_id', label: 'MQTT Client ID' },
+       // { key: 'mqtt_client_id', label: 'MQTT Client ID' },
         { key: 'mqtt_username', label: 'MQTT Username' },
         { key: 'mqtt_password', label: 'MQTT Password', secure: true },
       ],
@@ -289,8 +289,8 @@ export default function ConfigScreen() {
       title: 'Beacon',
       fields: [
         // IMPORTANT: backend special-cases these dotted keys for iBeacon fields
-        { key: 'beacon.majorId', label: 'Beacon Major ID', keyboard: 'numeric' },
-        { key: 'beacon.minorId', label: 'Beacon Minor ID', keyboard: 'numeric' },
+        { key: 'beacon_majorId', label: 'Beacon Major ID', keyboard: 'numeric' },
+        { key: 'beacon_minorId', label: 'Beacon Minor ID', keyboard: 'numeric' },
       ],
     },
   ];
