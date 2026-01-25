@@ -26,6 +26,7 @@ const HospitalFloorPlan = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [animatingNodes, setAnimatingNodes] = useState({});
 
   // ============================================================================
   // API CONFIGURATION
@@ -130,6 +131,25 @@ const HospitalFloorPlan = () => {
               const newLocation = data.roomId || data.location || data.room;
               
               if (oldLocation && newLocation && oldLocation !== newLocation) {
+                // Trigger animation
+                setAnimatingNodes(prev => ({
+                  ...prev,
+                  [nodeId]: {
+                    fromRoom: oldLocation,
+                    toRoom: newLocation,
+                    startTime: Date.now(),
+                  }
+                }));
+
+                // Clear animation after it completes
+                setTimeout(() => {
+                  setAnimatingNodes(prev => {
+                    const updated = { ...prev };
+                    delete updated[nodeId];
+                    return updated;
+                  });
+                }, 1000);
+
                 setRoomTransition({
                   nodeId,
                   fromRoom: oldLocation,
@@ -209,6 +229,14 @@ const HospitalFloorPlan = () => {
     return node.friendlyName || node.name || nodeId;
   };
 
+  const getNodeConfig = (node) => {
+    // All nodes are simply staff with 'S' badge
+    return { 
+      letter: 'S', 
+      color: '#8b5cf6' // Purple
+    };
+  };
+
   // ============================================================================
   // DYNAMIC STYLES
   // ============================================================================
@@ -222,6 +250,39 @@ const HospitalFloorPlan = () => {
     cardTitle: { ...styles.cardTitle, color: isDarkMode ? '#F9FAFB' : '#111827' },
     text: { color: isDarkMode ? '#F9FAFB' : '#111827' },
     subtext: { color: isDarkMode ? '#9CA3AF' : '#6B7280' },
+  };
+
+  // ============================================================================
+  // BEACON COMPONENT
+  // ============================================================================
+  
+  const NodeBeacon = ({ node, size = 40 }) => {
+    const config = getNodeConfig(node);
+    const nodeId = node.id || node.nodeId || node.uuid;
+    const isAnimating = animatingNodes[nodeId];
+    
+    return (
+      <View style={[
+        styles.beacon,
+        { 
+          width: size, 
+          height: size, 
+          backgroundColor: config.color,
+          transform: isAnimating ? [{ scale: 1.2 }] : [{ scale: 1 }],
+        }
+      ]}>
+        <Text style={[styles.beaconText, { fontSize: size * 0.5 }]}>
+          {config.letter}
+        </Text>
+        {isAnimating && (
+          <View style={[styles.beaconPulse, { 
+            width: size * 1.5, 
+            height: size * 1.5,
+            borderColor: config.color,
+          }]} />
+        )}
+      </View>
+    );
   };
 
   // ============================================================================
@@ -259,17 +320,18 @@ const HospitalFloorPlan = () => {
           <View style={[styles.statusIndicator, { backgroundColor: isActive ? '#22c55e' : '#6b7280' }]} />
         </View>
         
+        {/* Visual Beacons */}
         {nodesInRoom.length > 0 && (
-          <View style={styles.roomDevices}>
+          <View style={styles.beaconContainer}>
             {nodesInRoom.map((node) => {
               const nodeId = node.id || node.nodeId || node.uuid;
-              const location = currentLocations[nodeId];
-              const friendlyName = getNodeFriendlyName(node);
               
               return (
-                <View key={nodeId} style={[styles.deviceChip, { backgroundColor: isDarkMode ? '#374151' : '#F3F4F6' }]}>
-                  <Ionicons name="person-circle" size={16} color={location?.active ? '#22c55e' : '#3b82f6'} />
-                  <Text style={[styles.deviceChipText, dynamicStyles.text]}>{friendlyName}</Text>
+                <View key={nodeId} style={styles.beaconWrapper}>
+                  <NodeBeacon node={node} size={36} />
+                  <Text style={[styles.beaconLabel, dynamicStyles.text]} numberOfLines={1}>
+                    {getNodeFriendlyName(node)}
+                  </Text>
                 </View>
               );
             })}
@@ -468,12 +530,15 @@ const HospitalFloorPlan = () => {
               const nodeId = node.id || node.nodeId || node.uuid;
               const location = currentLocations[nodeId];
               const friendlyName = getNodeFriendlyName(node);
+              const config = getNodeConfig(node);
               
               return (
                 <View key={nodeId} style={[styles.detailCard, { backgroundColor: isDarkMode ? '#374151' : '#F9FAFB' }]}>
                   <View style={styles.detailRow}>
-                    <Ionicons name="person-circle" size={20} color="#3b82f6" />
-                    <Text style={[styles.detailLabel, dynamicStyles.text]}>{friendlyName}</Text>
+                    <NodeBeacon node={node} size={32} />
+                    <View style={{ flex: 1, marginLeft: 12 }}>
+                      <Text style={[styles.detailLabel, dynamicStyles.text]}>{friendlyName}</Text>
+                    </View>
                     <View style={[styles.statusBadge, { backgroundColor: location?.active ? '#22c55e' : '#6b7280' }]}>
                       <Text style={styles.statusBadgeText}>
                         {location?.active ? 'Active' : 'Inactive'}
@@ -513,11 +578,32 @@ const HospitalFloorPlan = () => {
               <Text style={[styles.sectionTitle, dynamicStyles.text]}>Location History</Text>
             </View>
 
+            <View style={styles.historyLegend}>
+              {nodes.find(n => (n.id || n.nodeId || n.uuid) === selectedNode) && (
+                <View style={styles.historyLegendItem}>
+                  <NodeBeacon 
+                    node={nodes.find(n => (n.id || n.nodeId || n.uuid) === selectedNode)} 
+                    size={28} 
+                  />
+                  <Text style={[styles.historyLegendText, dynamicStyles.text]}>
+                    {getNodeFriendlyName(nodes.find(n => (n.id || n.nodeId || n.uuid) === selectedNode))}
+                  </Text>
+                </View>
+              )}
+            </View>
+
             {historyData.length > 0 ? (
               historyData.map((entry, idx) => (
                 <View key={idx} style={[styles.historyCard, { backgroundColor: isDarkMode ? '#374151' : '#F9FAFB' }]}>
                   <View style={styles.historyHeader}>
-                    <Text style={[styles.historyRoom, dynamicStyles.text]}>{entry.roomName}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Ionicons 
+                        name="location" 
+                        size={16} 
+                        color={rooms.find(r => r.id === entry.roomId)?.color || '#6b7280'} 
+                      />
+                      <Text style={[styles.historyRoom, dynamicStyles.text]}>{entry.roomName}</Text>
+                    </View>
                     <Text style={[styles.historyTime, dynamicStyles.subtext]}>
                       {Math.floor(Math.abs(new Date() - entry.timestamp) / 3600000)}h ago
                     </Text>
@@ -764,23 +850,41 @@ const styles = StyleSheet.create({
     height: 10,
     borderRadius: 5,
   },
-  roomDevices: {
+  beacon: {
+    borderRadius: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  beaconText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+  },
+  beaconPulse: {
+    position: 'absolute',
+    borderRadius: 50,
+    borderWidth: 2,
+    opacity: 0.6,
+  },
+  beaconContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     marginTop: 12,
-    gap: 6,
+    gap: 12,
   },
-  deviceChip: {
-    flexDirection: 'row',
+  beaconWrapper: {
     alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
     gap: 4,
+    maxWidth: 60,
   },
-  deviceChipText: {
-    fontSize: 12,
-    fontWeight: '500',
+  beaconLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   detailCard: {
     padding: 12,
@@ -815,6 +919,23 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontSize: 14,
     paddingVertical: 20,
+  },
+  historyLegend: {
+    marginBottom: 16,
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: 'rgba(139, 92, 246, 0.1)',
+    borderWidth: 1,
+    borderColor: '#8b5cf6',
+  },
+  historyLegendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  historyLegendText: {
+    fontSize: 14,
+    fontWeight: '600',
   },
   historyCard: {
     padding: 12,
