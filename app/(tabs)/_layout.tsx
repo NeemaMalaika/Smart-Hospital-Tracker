@@ -18,15 +18,12 @@ export default function TabLayout() {
       const auth = await AsyncStorage.getItem('isAuthenticated');
       const isAuth = auth === 'true';
       setIsAuthenticated(isAuth);
-      
-      // Redirect logic
+
       const onLoginPage = segments[1] === 'login';
-      
+
       if (!isAuth && !onLoginPage) {
-        // Not authenticated and not on login -> redirect to login
         router.replace('/(tabs)/login');
       } else if (isAuth && onLoginPage) {
-        // Authenticated but still on login -> redirect to home
         router.replace('/(tabs)');
       }
     } catch (error) {
@@ -41,34 +38,52 @@ export default function TabLayout() {
   }
 
   return (
-    <Tabs 
-      screenOptions={{ 
-        tabBarActiveTintColor: '#2563EB', 
+    <Tabs
+      screenOptions={{
+        tabBarActiveTintColor: '#2563EB',
         headerShown: false,
       }}
     >
-      <Tabs.Screen 
-        name="login" 
-        options={{ 
-          href: null, // Hide from tab bar
-        }} 
+      {/* Hidden Login Screen */}
+      <Tabs.Screen
+        name="login"
+        options={{
+          href: null,
+        }}
       />
-      <Tabs.Screen 
-        name="index" 
-        options={{ 
-          title: 'Monitor', 
-          tabBarIcon: ({ color, size }) => <Ionicons name="thermometer" size={size} color={color} /> 
-        }} 
+
+      {/* Main Monitor Screen */}
+      <Tabs.Screen
+        name="index"
+        options={{
+          title: 'Monitor',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="thermometer" size={size} color={color} />
+          ),
+        }}
       />
-      <Tabs.Screen 
-        name="explore" 
-        options={{ 
-          title: 'Explore', 
-          tabBarIcon: ({ color, size }) => <Ionicons name="code-slash" size={size} color={color} /> 
-        }} 
+
+      {/* Explore / Dev Screen */}
+      <Tabs.Screen
+        name="explore"
+        options={{
+          title: 'Explore',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="code-slash" size={size} color={color} />
+          ),
+        }}
+      />
+
+      {/* Admin / Config Screen */}
+      <Tabs.Screen
+        name="config"
+        options={{
+          title: 'Admin',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="settings-outline" size={size} color={color} />
+          ),
+        }}
       />
     </Tabs>
-
-    
   );
 }
