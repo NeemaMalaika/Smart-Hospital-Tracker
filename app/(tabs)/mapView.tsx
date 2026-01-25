@@ -43,12 +43,12 @@ const HospitalFloorPlan = () => {
   // HOSPITAL ROOM CONFIGURATION
   // ============================================================================
   const rooms = [
-    { id: 'room-101', name: 'Room 101', color: '#10b981', position: 'left', emoji: '🛏️' },
-    { id: 'room-102', name: 'Room 102', color: '#3b82f6', position: 'left', emoji: '🛏️' },
-    { id: 'room-103', name: 'Room 103', color: '#8b5cf6', position: 'left', emoji: '🛏️' },
-    { id: 'room-201', name: 'Room 201', color: '#f59e0b', position: 'right', emoji: '🛏️' },
-    { id: 'room-202', name: 'Room 202', color: '#ec4899', position: 'right', emoji: '🛏️' },
-    { id: 'room-203', name: 'Room 203', color: '#06b6d4', position: 'right', emoji: '🛏️' },
+    { id: 'room-101', name: 'ER', color: '#10b981', position: 'left', emoji: '🛏️' },
+    { id: 'room-102', name: 'Operating Theatre 1', color: '#3b82f6', position: 'left', emoji: '🛏️' },
+    { id: 'room-103', name: 'Radiology', color: '#8b5cf6', position: 'left', emoji: '🛏️' },
+    { id: 'room-201', name: 'Pharmacy', color: '#f59e0b', position: 'right', emoji: '🛏️' },
+    { id: 'room-202', name: 'Intensive Care Unit', color: '#ec4899', position: 'right', emoji: '🛏️' },
+    { id: 'room-203', name: 'GPU', color: '#06b6d4', position: 'right', emoji: '🛏️' },
   ];
 
   // ============================================================================
@@ -93,10 +93,13 @@ const HospitalFloorPlan = () => {
       const data = await response.json();
       const nodesList = Array.isArray(data) ? data : (data.nodes || data.data || []);
       
-      setNodes(nodesList);
-      
-      if (nodesList.length > 0 && !selectedNode) {
-        const firstNodeId = nodesList[0].id || nodesList[0].nodeId || nodesList[0].uuid;
+      // Filter to only show USER_NODE types for location tracking
+      const userNodes = nodesList.filter(node => node.type === 'USER_NODE');
+
+      setNodes(userNodes);
+
+      if (userNodes.length > 0 && !selectedNode) {
+        const firstNodeId = userNodes[0].id || userNodes[0].nodeId || userNodes[0].uuid;
         setSelectedNode(firstNodeId);
       }
     } catch (error) {
@@ -108,117 +111,155 @@ const HospitalFloorPlan = () => {
   };
 
   const fetchAllCurrentLocations = async () => {
-    try {
-      const locations = {};
-      
-      await Promise.all(
-        nodes.map(async (node) => {
-          const nodeId = node.id || node.nodeId || node.uuid;
-          
-          try {
-            const response = await fetch(
-              `${API_BASE_URL}/location/current?nodeId=${nodeId}`,
-              {
-                method: 'GET',
-                headers: getHeaders(),
-              }
-            );
+  console.log('===== FETCH ALL CURRENT LOCATIONS =====');
+  console.log('Number of nodes to fetch:', nodes.length);
+  console.log('Nodes:', nodes);
+  
+  try {
+    const locations = {};
+    
+    await Promise.all(
+      nodes.map(async (node) => {
+        const nodeId = node.id || node.nodeId || node.uuid;
+        const url = `${API_BASE_URL}/location/current?nodeId=${nodeId}`;
+        
+        console.log(`🔍 Fetching location for node: ${nodeId}`);
+        console.log(`📍 URL: ${url}`);
+        
+        try {
+          const response = await fetch(url, {
+            method: 'GET',
+            headers: getHeaders(),
+          });
 
-            if (response.ok) {
-              const data = await response.json();
+          console.log(`📊 Response status for ${nodeId}:`, response.status);
+
+          if (response.ok) {
+            const data = await response.json();
+            console.log(`✅ RAW RESPONSE DATA for ${nodeId}:`, JSON.stringify(data, null, 2));
+            
+            const oldLocation = currentLocations[nodeId]?.location;
+            const newLocation = data.location; 
+            
+            console.log(`📌 Old location: "${oldLocation}", New location: "${newLocation}"`);
+            
+            if (oldLocation && newLocation && oldLocation !== newLocation) {
+              console.log(`🔄 Location changed! ${oldLocation} → ${newLocation}`);
               
-              const oldLocation = currentLocations[nodeId]?.roomId;
-              const newLocation = data.roomId || data.location || data.room;
-              
-              if (oldLocation && newLocation && oldLocation !== newLocation) {
-                // Trigger animation
-                setAnimatingNodes(prev => ({
-                  ...prev,
-                  [nodeId]: {
-                    fromRoom: oldLocation,
-                    toRoom: newLocation,
-                    startTime: Date.now(),
-                  }
-                }));
-
-                // Clear animation after it completes
-                setTimeout(() => {
-                  setAnimatingNodes(prev => {
-                    const updated = { ...prev };
-                    delete updated[nodeId];
-                    return updated;
-                  });
-                }, 1000);
-
-                setRoomTransition({
-                  nodeId,
+              // Trigger animation
+              setAnimatingNodes(prev => ({
+                ...prev,
+                [nodeId]: {
                   fromRoom: oldLocation,
                   toRoom: newLocation,
-                  timestamp: new Date(),
+                  startTime: Date.now(),
+                }
+              }));
+
+              // Clear animation after it completes
+              setTimeout(() => {
+                setAnimatingNodes(prev => {
+                  const updated = { ...prev };
+                  delete updated[nodeId];
+                  return updated;
                 });
-                setTimeout(() => setRoomTransition(null), 2000);
-              }
-              
-              locations[nodeId] = {
-                roomId: newLocation,
-                timestamp: new Date(data.timestamp || Date.now()),
-                active: true,
-                rssi: data.rssi || data.wifi_rssi || -50,
-              };
+              }, 1000);
+
+              setRoomTransition({
+                nodeId,
+                fromRoom: oldLocation,
+                toRoom: newLocation,
+                timestamp: new Date(),
+              });
+              setTimeout(() => setRoomTransition(null), 2000);
             }
-          } catch (err) {
-            console.error(`Error fetching location for ${nodeId}:`, err);
+            
+            locations[nodeId] = {
+              location: newLocation,
+              roomName: newLocation,
+              timestamp: new Date(data.timestamp || Date.now()),
+              active: true,
+              rssi: data.rssi || data.wifi_rssi || -50,
+            };
+            
+            console.log(`💾 Stored location for ${nodeId}:`, locations[nodeId]);
+          } else {
+            const errorText = await response.text();
+            console.error(`❌ Error response for ${nodeId}:`, response.status, errorText);
           }
-        })
-      );
-      
-      setCurrentLocations(locations);
-    } catch (error) {
-      console.error('Error fetching current locations:', error);
-    }
-  };
+        } catch (err) {
+          console.error(`❌ Error fetching location for ${nodeId}:`, err);
+        }
+      })
+    );
+    
+    console.log('📦 Final locations object:', locations);
+    console.log('📊 Total locations stored:', Object.keys(locations).length);
+    setCurrentLocations(locations);
+  } catch (error) {
+    console.error('❌ Error fetching current locations:', error);
+  }
+  console.log('=======================================');
+};
 
   const fetchLocationHistory = async (nodeId) => {
-    try {
-      const response = await fetch(
-        `${API_BASE_URL}/location/history?nodeId=${nodeId}`,
-        {
-          method: 'GET',
-          headers: getHeaders(),
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/location/history?nodeId=${nodeId}`,
+      {
+        method: 'GET',
+        headers: getHeaders(),
       }
+    );
 
-      const data = await response.json();
-      const historyArray = Array.isArray(data) ? data : (data.history || data.data || []);
-      
-      const processedHistory = historyArray.map(entry => ({
-        timestamp: new Date(entry.timestamp || entry.created_at || entry.time),
-        roomId: entry.roomId || entry.room || entry.location,
-        roomName: rooms.find(r => r.id === (entry.roomId || entry.room))?.name || 'Unknown',
-      }));
-      
-      setHistoryData(processedHistory);
-    } catch (error) {
-      console.error('Error fetching location history:', error);
-      setHistoryData([]);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
     }
-  };
 
-  // ============================================================================
+    const data = await response.json();
+    console.log('📜 History data received:', data);
+    
+    // Backend wraps history in { "history": [...] }
+    const historyArray = data.history || [];
+    console.log('📜 History array:', historyArray);
+
+    // Process duplicates
+    const processedHistory = [];
+    let lastLocation = null;
+
+    historyArray.forEach(entry => {
+      const currentLocation = entry.location;
+
+      if (currentLocation !== lastLocation) {
+        processedHistory.push({
+          timestamp: new Date(entry.timestamp),
+          location: currentLocation,
+          roomName: currentLocation,
+        });
+      }
+      lastLocation = currentLocation;
+    });
+    
+    console.log('📜 Processed history:', processedHistory);
+    setHistoryData(processedHistory);
+  } catch (error) {
+    console.error('Error fetching location history:', error);
+    setHistoryData([]);
+  }
+};
+
   // HELPER FUNCTIONS
-  // ============================================================================
   
   const getNodesInRoom = (roomId) => {
-    return nodes.filter(node => {
-      const nodeId = node.id || node.nodeId || node.uuid;
-      const location = currentLocations[nodeId];
-      return location && location.roomId === roomId;
-    });
-  };
+  return nodes.filter(node => {
+    const nodeId = node.id || node.nodeId || node.uuid;
+    const locationData = currentLocations[nodeId];
+    
+    // Match against room name from the rooms array
+    const room = rooms.find(r => r.id === roomId);
+    return locationData && room && locationData.location === room.name;
+  });
+};
 
   const isRoomActive = (roomId) => {
     return getNodesInRoom(roomId).length > 0;
@@ -350,9 +391,9 @@ const HospitalFloorPlan = () => {
       {/* HEADER */}
       <View style={dynamicStyles.header}>
         <View style={{ flex: 1 }}>
-          <Text style={dynamicStyles.headerTitle}>Hospital Floor Plan</Text>
+          <Text style={dynamicStyles.headerTitle}>Hospital Location Tracker</Text>
           <Text style={dynamicStyles.headerSubtitle}>
-            Real-time patient and device tracking
+            Real-time hospital staff and device tracking
           </Text>
         </View>
 
@@ -412,7 +453,7 @@ const HospitalFloorPlan = () => {
 
       {/* NODE SELECTION */}
       <View style={[styles.section, dynamicStyles.card]}>
-        <Text style={[styles.sectionLabel, dynamicStyles.text]}>Select Node</Text>
+        <Text style={[styles.sectionLabel, dynamicStyles.text]}>Select Hospital Staff Member</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
           {nodes.map((node) => {
             const nodeId = node.id || node.nodeId || node.uuid;
@@ -463,7 +504,7 @@ const HospitalFloorPlan = () => {
       {isLoading && (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#3b82f6" />
-          <Text style={[styles.loadingText, dynamicStyles.subtext]}>Loading floor plan data...</Text>
+          <Text style={[styles.loadingText, dynamicStyles.subtext]}>Loading hospital map data...</Text>
         </View>
       )}
 
@@ -482,7 +523,7 @@ const HospitalFloorPlan = () => {
       <View style={[styles.section, dynamicStyles.card]}>
         <View style={styles.sectionHeader}>
           <Ionicons name="business" size={24} color="#3b82f6" />
-          <Text style={[styles.sectionTitle, dynamicStyles.text]}>Floor Layout</Text>
+          <Text style={[styles.sectionTitle, dynamicStyles.text]}>Hospital Map</Text>
         </View>
 
         <View style={styles.floorPlanContainer}>
@@ -500,7 +541,7 @@ const HospitalFloorPlan = () => {
             <Text style={[styles.corridorText, dynamicStyles.subtext]}>CORRIDOR</Text>
             <Ionicons name="arrow-down" size={24} color={isDarkMode ? '#9CA3AF' : '#6B7280'} />
             <View style={styles.entrance}>
-              <Ionicons name="door-open" size={20} color={isDarkMode ? '#9CA3AF' : '#6B7280'} />
+              <Ionicons name="enter" size={20} color={isDarkMode ? '#9CA3AF' : '#6B7280'} />
               <Text style={[styles.entranceText, dynamicStyles.subtext]}>Entrance</Text>
             </View>
           </View>
@@ -575,7 +616,7 @@ const HospitalFloorPlan = () => {
           <View style={[styles.section, dynamicStyles.card]}>
             <View style={styles.sectionHeader}>
               <Ionicons name="time" size={24} color="#8b5cf6" />
-              <Text style={[styles.sectionTitle, dynamicStyles.text]}>Location History</Text>
+              <Text style={[styles.sectionTitle, dynamicStyles.text]}>Location Summary</Text>
             </View>
 
             <View style={styles.historyLegend}>
@@ -593,14 +634,17 @@ const HospitalFloorPlan = () => {
             </View>
 
             {historyData.length > 0 ? (
-              historyData.map((entry, idx) => (
+              historyData.map((entry, idx) => {
+                const room = rooms.find(r => r.name === entry.location);
+                
+                return (
                 <View key={idx} style={[styles.historyCard, { backgroundColor: isDarkMode ? '#374151' : '#F9FAFB' }]}>
                   <View style={styles.historyHeader}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                       <Ionicons 
                         name="location" 
                         size={16} 
-                        color={rooms.find(r => r.id === entry.roomId)?.color || '#6b7280'} 
+                        color={room?.color || '#6b7280'} 
                       />
                       <Text style={[styles.historyRoom, dynamicStyles.text]}>{entry.roomName}</Text>
                     </View>
@@ -612,7 +656,8 @@ const HospitalFloorPlan = () => {
                     {entry.timestamp.toLocaleString()}
                   </Text>
                 </View>
-              ))
+                );
+              })
             ) : (
               <Text style={[styles.emptyText, dynamicStyles.subtext]}>No history data available</Text>
             )}

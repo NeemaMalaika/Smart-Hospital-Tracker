@@ -235,13 +235,15 @@ export default function EnvironmentalMonitor() {
         return;
       }
       
-      setNodes(nodesList);
-      
-      if (nodesList.length > 0 && !selectedNode) {
-        const firstNodeId = nodesList[0].id || nodesList[0].nodeId || nodesList[0].uuid;
-        console.log('Auto-selecting first node:', firstNodeId);
+      // Filter to only show ROOM_NODE types for environmental sensors
+      const roomNodes = nodesList.filter(node => node.type === 'ROOM_NODE');
+
+      setNodes(roomNodes);
+
+      if (roomNodes.length > 0 && !selectedNode) {
+        const firstNodeId = roomNodes[0].id || roomNodes[0].nodeId || roomNodes[0].uuid;
         setSelectedNode(firstNodeId);
-      }
+    }
       
     } catch (error) {
       console.error('Error fetching nodes:', error);
@@ -473,7 +475,6 @@ export default function EnvironmentalMonitor() {
   };
 
   // SENSOR CARD COMPONENT
-  
   const SensorCard = ({ sensor }) => {
     const value = sensorData[sensor.id];
     const status = getStatus(value, sensor);
