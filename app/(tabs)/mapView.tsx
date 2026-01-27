@@ -1,16 +1,14 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  ScrollView, 
-  TouchableOpacity, 
-  Alert, 
-  Platform, 
-  Dimensions,
-  ActivityIndicator 
-} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
+} from 'react-native';
 
 const HospitalFloorPlan = () => {
   // ============================================================================
@@ -81,7 +79,7 @@ const HospitalFloorPlan = () => {
       setIsLoading(true);
       setError(null);
 
-      const response = await fetch(`${API_BASE_URL}/nodes`, {
+      const response = await fetch(`${API_BASE_URL}/node/list`, {
         method: 'GET',
         headers: getHeaders(),
       });

@@ -1,15 +1,15 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Platform, Dimensions, ActivityIndicator } from 'react-native';
-import { LineChart } from 'react-native-chart-kit';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, Dimensions, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { LineChart } from 'react-native-chart-kit';
 
 // API CONFIGURATION
 const API_CONFIG = {
   BASE_URL: 'https://backend.smartenvironment.tech/api/v1',
   ENDPOINTS: {
-    NODES: '/nodes',
+    NODES: '/node/list',
     CURRENT_SENSORS: '/sensors/current',
     SENSOR_HISTORY: '/sensors/history',
   },
