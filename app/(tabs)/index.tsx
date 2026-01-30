@@ -5,19 +5,119 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Dimensions, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { LineChart } from 'react-native-chart-kit';
 
+// ============================================================================
+// TYPE DEFINITIONS
+// These interfaces define the shape of our data throughout the application
+// ============================================================================
+
+interface APIConfig {
+  BASE_URL: string;
+  ENDPOINTS: {
+    NODES: string;
+    CURRENT_SENSORS: string;
+    SENSOR_HISTORY: string;
+  };
+  POLLING_INTERVAL: number;
+}
+
+interface SensorThresholds {
+  min: number;
+  max: number;
+  critical: number;
+}
+
+// Defines what each sensor needs (name, unit, icon, etc.)
+interface SensorDefinition {
+  id: string;
+  name: string;
+  unit: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  color: string;
+  apiKey: string;  // The key used in API responses
+  thresholds: SensorThresholds;
+  decimalPlaces: number;
+}
+
+interface Config {
+  systemName: string;
+  entityName: string;
+  entityPlural: string;
+}
+
+// Represents a monitoring node/device
+interface Node {
+  id?: string;
+  nodeId?: string;
+  uuid?: string;
+  friendlyName?: string;
+  name?: string;
+  type?: string;
+}
+
+interface SensorData {
+  [key: string]: number;
+}
+
+// Structure for chart data (labels and values)
+interface HistoryDataset {
+  labels: string[];
+  datasets: [{ data: number[] }];
+}
+
+interface HistoryData {
+  [key: string]: HistoryDataset;
+}
+
+// Status badge configuration (color, label, background)
+interface Status {
+  label: string;
+  color: string;
+  bgColor: string;
+}
+
+// Time range options for historical graphs
+interface TimeRange {
+  id: string;
+  label: string;
+  minutes: number;
+}
+
+// ============================================================================
 // API CONFIGURATION
-const API_CONFIG = {
+// Connection details for the backend server
+// ============================================================================
+const API_CONFIG: APIConfig = {
   BASE_URL: 'https://backend.smartenvironment.tech/api/v1',
   ENDPOINTS: {
     NODES: '/node/list',
     CURRENT_SENSORS: '/sensors/current',
     SENSOR_HISTORY: '/sensors/history',
   },
-  POLLING_INTERVAL: 30000, // 30 seconds
+  POLLING_INTERVAL: 30000, // Refresh data every 30 seconds
 };
 
-// SENSOR CONFIGURATION - Generic and easily Customizable
-const SENSOR_DEFINITIONS = [
+// ============================================================================
+// TIME RANGES FOR HISTORICAL DATA
+// User can select how far back they want to see data
+// ============================================================================
+const TIME_RANGES: TimeRange[] = [
+  { id: '5m', label: '5m', minutes: 5 },
+  { id: '15m', label: '15m', minutes: 15 },
+  { id: '30m', label: '30m', minutes: 30 },
+  { id: '1h', label: '1h', minutes: 60 },
+  { id: '3h', label: '3h', minutes: 180 },
+  { id: '12h', label: '12h', minutes: 720 },
+  { id: '24h', label: '24h', minutes: 1440 },
+  { id: '3d', label: '3d', minutes: 4320 },
+  { id: '7d', label: '7d', minutes: 10080 },
+  { id: '30d', label: '30d', minutes: 43200 },
+];
+
+// ============================================================================
+// SENSOR CONFIGURATION
+// Defines all the sensors we're monitoring - easy to add more!
+// ============================================================================
+const SENSOR_DEFINITIONS: SensorDefinition[] = [
   {
     id: 'temperature',
     name: 'Temperature',
@@ -100,52 +200,77 @@ const SENSOR_DEFINITIONS = [
   },
 ];
 
-// DEFAULT CONFIGURATION
-const DEFAULT_CONFIG = {
+// Default system configuration
+const DEFAULT_CONFIG: Config = {
   systemName: 'Environmental Monitoring System',
   entityName: 'Node',
   entityPlural: 'Nodes',
 };
 
+// ============================================================================
+// MAIN COMPONENT
+// ============================================================================
 export default function EnvironmentalMonitor() {
   const router = useRouter();
   
-
+  // ============================================================================
   // STATE MANAGEMENT
-
-  const [config, setConfig] = useState(DEFAULT_CONFIG);
-  const [nodes, setNodes] = useState([]);
-  const [selectedNode, setSelectedNode] = useState(null);
-  const [sensorData, setSensorData] = useState({});
-  const [historyData, setHistoryData] = useState({});
-  const [lastUpdated, setLastUpdated] = useState(new Date());
-  const [isDarkMode, setIsDarkMode] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
-
-  // INITIALIZATION EFFECTS
+  // All the data our app needs to keep track of
+  // ============================================================================
   
-  // Runs once when the component mounts
+  const [config, setConfig] = useState<Config>(DEFAULT_CONFIG);
+  const [nodes, setNodes] = useState<Node[]>([]);  // List of all available nodes
+  const [selectedNode, setSelectedNode] = useState<string | null>(null);  // Which node we're viewing
+  const [sensorData, setSensorData] = useState<SensorData>({});  // Current sensor readings
+  const [historyData, setHistoryData] = useState<HistoryData>({});  // Historical data for charts
+  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());  // When we last fetched data
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(false);  // Light or dark theme
+  const [isLoading, setIsLoading] = useState<boolean>(true);  // Are we fetching data?
+  const [error, setError] = useState<string | null>(null);  // Any error messages
+  
+  // Sensor dropdown state
+  const [selectedSensor, setSelectedSensor] = useState<string>(SENSOR_DEFINITIONS[0].id);
+  const [isDropdownOpen, setIsDropdownOpen] = useState<boolean>(false);
+  
+  // Time range selector state
+  const [selectedTimeRange, setSelectedTimeRange] = useState<string>('24h');  // Default to 24 hours
+
+  // ============================================================================
+  // LIFECYCLE HOOKS
+  // These run at specific times in the component's life
+  // ============================================================================
+  
+  // Run once when component first loads
   useEffect(() => {
-    checkAuth();
-    loadConfig();
-    loadThemePreference();  // Load saved theme preference (dark/light mode)
-    fetchNodes(); // Fetch initial list of nodes
+    checkAuth();  // Make sure user is logged in
+    loadConfig();  // Load saved settings
+    loadThemePreference();  // Load dark/light mode preference
+    fetchNodes();  // Get the list of nodes from the server
   }, []);
 
+  // Run whenever the selected node changes
   useEffect(() => {
     if (selectedNode) {
-      fetchAllData();
-      // Set up polling to refresh data at a regular interval
+      fetchAllData();  // Fetch data for the new node
+      // Set up automatic refresh every 30 seconds
       const interval = setInterval(fetchAllData, API_CONFIG.POLLING_INTERVAL);
-      return () => clearInterval(interval); // Clean up interval on unmount or change
+      return () => clearInterval(interval);  // Clean up when component unmounts
     }
   }, [selectedNode]);
 
+  // Refetch history when time range changes
+  useEffect(() => {
+    if (selectedNode) {
+      fetchSensorHistory();
+    }
+  }, [selectedTimeRange]);
+
+  // ============================================================================
   // AUTHENTICATION & CONFIGURATION
+  // ============================================================================
   
-  // Check if user is authenticated; if not, redirect to login
-  const checkAuth = async () => {
+  // Check if user is authenticated, redirect to login if not
+  const checkAuth = async (): Promise<void> => {
     try {
       const isAuth = await AsyncStorage.getItem('isAuthenticated');
       
@@ -159,8 +284,8 @@ export default function EnvironmentalMonitor() {
     }
   };
 
-  // Load saved system configuration from local storage
-  const loadConfig = async () => {
+  // Load saved system configuration from device storage
+  const loadConfig = async (): Promise<void> => {
     try {
       const savedConfig = await AsyncStorage.getItem('systemConfig');
       if (savedConfig) {
@@ -171,7 +296,8 @@ export default function EnvironmentalMonitor() {
     }
   };
 
-  const loadThemePreference = async () => {
+  // Load the user's preferred theme (dark or light mode)
+  const loadThemePreference = async (): Promise<void> => {
     try {
       const savedTheme = await AsyncStorage.getItem('isDarkMode');
       if (savedTheme !== null) {
@@ -182,8 +308,8 @@ export default function EnvironmentalMonitor() {
     }
   };
 
-  // Toggle dark mode on/off and save preference
-  const toggleDarkMode = async () => {
+  // Toggle between dark and light mode
+  const toggleDarkMode = async (): Promise<void> => {
     const newMode = !isDarkMode;
     setIsDarkMode(newMode);
     try {
@@ -193,13 +319,19 @@ export default function EnvironmentalMonitor() {
     }
   };
 
+  // ============================================================================
   // API INTEGRATION
+  // Functions that talk to the backend server
+  // ============================================================================
+  
+  // Standard headers for API requests (includes API key)
   const getAuthHeaders = () => ({
     'Content-Type': 'application/json',
     'API-KEY': '49643a60-0aff-4a88-8e65-30ea428df8ee',
   });
 
-  const fetchNodes = async () => {
+  // Fetch the list of available nodes from the server
+  const fetchNodes = async (): Promise<void> => {
     try {
       setIsLoading(true);
       setError(null);
@@ -225,8 +357,8 @@ export default function EnvironmentalMonitor() {
       const data = await response.json();
       console.log('Nodes data received:', data);
       
-      // Handle different possible response formats
-      const nodesList = Array.isArray(data) ? data : (data.nodes || data.data || []);
+      // Handle different possible response formats from the API
+      const nodesList: Node[] = Array.isArray(data) ? data : (data.nodes || data.data || []);
       
       console.log('Processed nodes list:', nodesList);
       
@@ -235,22 +367,24 @@ export default function EnvironmentalMonitor() {
         return;
       }
       
-      // Filter to only show ROOM_NODE types for environmental sensors
-      const roomNodes = nodesList.filter(node => node.type === 'ROOM_NODE');
+      // We only want ROOM_NODE types for environmental sensors
+      const roomNodes = nodesList.filter((node: Node) => node.type === 'ROOM_NODE');
 
       setNodes(roomNodes);
 
+      // Automatically select the first node if none is selected
       if (roomNodes.length > 0 && !selectedNode) {
         const firstNodeId = roomNodes[0].id || roomNodes[0].nodeId || roomNodes[0].uuid;
-        setSelectedNode(firstNodeId);
-    }
+        setSelectedNode(firstNodeId || null);
+      }
       
     } catch (error) {
       console.error('Error fetching nodes:', error);
-      setError(`Failed to fetch nodes: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      setError(`Failed to fetch nodes: ${errorMessage}`);
       Alert.alert(
         'Connection Error',
-        `Unable to fetch node list: ${error.message}`,
+        `Unable to fetch node list: ${errorMessage}`,
         [{ text: 'OK' }]
       );
     } finally {
@@ -258,32 +392,34 @@ export default function EnvironmentalMonitor() {
     }
   };
 
- const fetchAllData = async () => {
-  if (!selectedNode) {
-    console.warn('fetchAllData skipped: selectedNode is null');
-    return;
-  }
+  // Fetch both current sensor data and historical data
+  const fetchAllData = async (): Promise<void> => {
+    if (!selectedNode) {
+      console.warn('fetchAllData skipped: selectedNode is null');
+      return;
+    }
 
-  try {
-    setIsLoading(true);
-    setError(null);
+    try {
+      setIsLoading(true);
+      setError(null);
 
-    await Promise.all([
-      fetchCurrentSensorData(),
-      fetchSensorHistory(),
-    ]);
+      // Fetch both current and historical data in parallel
+      await Promise.all([
+        fetchCurrentSensorData(),
+        fetchSensorHistory(),
+      ]);
 
-    setLastUpdated(new Date());
-  } catch (error) {
-    console.error('Error fetching data:', error);
-    setError('Failed to fetch data from server');
-  } finally {
-    setIsLoading(false);
-  }
-};
+      setLastUpdated(new Date());
+    } catch (error) {
+      console.error('Error fetching data:', error);
+      setError('Failed to fetch data from server');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-
-  const fetchCurrentSensorData = async () => {
+  // Fetch the current (latest) readings from all sensors
+  const fetchCurrentSensorData = async (): Promise<void> => {
     try {
       const url = `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.CURRENT_SENSORS}?nodeId=${selectedNode}`;
       console.log('Fetching current sensor data from:', url);
@@ -295,6 +431,13 @@ export default function EnvironmentalMonitor() {
 
       console.log('Current sensors response status:', response.status);
 
+      // 204 means "no content" - the node hasn't sent data yet
+      if (response.status === 204) {
+        console.log('No current sensor data available (204)');
+        setSensorData({});
+        return;
+      }
+
       if (!response.ok) {
         const errorText = await response.text();
         console.error('Current sensors API error:', errorText);
@@ -304,9 +447,9 @@ export default function EnvironmentalMonitor() {
       const data = await response.json();
       console.log('Current sensor data received:', data);
       
-      // Store sensor data generically
-      const processedData = {};
-      SENSOR_DEFINITIONS.forEach(sensor => {
+      // Convert API response to our internal format
+      const processedData: SensorData = {};
+      SENSOR_DEFINITIONS.forEach((sensor: SensorDefinition) => {
         const value = data[sensor.apiKey];
         if (value !== undefined && value !== null) {
           processedData[sensor.id] = parseFloat(value);
@@ -322,9 +465,14 @@ export default function EnvironmentalMonitor() {
     }
   };
 
-  const fetchSensorHistory = async () => {
+  // Fetch historical sensor data for graphs
+  const fetchSensorHistory = async (): Promise<void> => {
     try {
-      const url = `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.SENSOR_HISTORY}?nodeId=${selectedNode}`;
+      // Get the selected time range
+      const timeRange = TIME_RANGES.find(tr => tr.id === selectedTimeRange);
+      if (!timeRange) return;
+
+      const url = `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.SENSOR_HISTORY}?nodeId=${selectedNode}&minutes=${timeRange.minutes}`;
       console.log('Fetching sensor history from:', url);
 
       const response = await fetch(url, {
@@ -333,6 +481,21 @@ export default function EnvironmentalMonitor() {
       });
 
       console.log('Sensor history response status:', response.status);
+
+      // 204 means no historical data available yet
+      if (response.status === 204) {
+        console.log('No sensor history available (204)');
+        // Set empty history for all sensors
+        const emptyHistory: HistoryData = {};
+        SENSOR_DEFINITIONS.forEach((sensor: SensorDefinition) => {
+          emptyHistory[sensor.id] = {
+            labels: [],
+            datasets: [{ data: [0] }],
+          };
+        });
+        setHistoryData(emptyHistory);
+        return;
+      }
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -344,23 +507,38 @@ export default function EnvironmentalMonitor() {
       console.log('Sensor history data received:', result);
       
       // Handle different possible response formats
-      const historyArray = Array.isArray(result) ? result : (result.data || result.history || []);
+      const historyArray: any[] = Array.isArray(result) ? result : (result.data || result.history || []);
       
       console.log('History array length:', historyArray.length);
       
       // Process history data for each sensor
-      const processedHistory = {};
+      const processedHistory: HistoryData = {};
       
-      SENSOR_DEFINITIONS.forEach(sensor => {
-        const labels = [];
-        const values = [];
+      SENSOR_DEFINITIONS.forEach((sensor: SensorDefinition) => {
+        const labels: string[] = [];
+        const values: (number | null)[] = [];
         
-        historyArray.forEach((reading, index) => {
+        // Convert each reading into chart-friendly format
+        historyArray.forEach((reading: any, index: number) => {
           const date = new Date(reading.timestamp || reading.time || reading.date);
-          const hour = date.getHours();
           
-          // Only show label every 2 hours to avoid clutter
-          labels.push(index % 2 === 0 ? `${hour.toString().padStart(2, '0')}:00` : '');
+          // Format the time label based on the time range
+          let timeLabel = '';
+          if (timeRange.minutes <= 60) {
+            // For short ranges (≤1h), show minutes
+            timeLabel = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          } else if (timeRange.minutes <= 1440) {
+            // For medium ranges (≤24h), show hours
+            const hour = date.getHours();
+            timeLabel = `${hour.toString().padStart(2, '0')}:00`;
+          } else {
+            // For long ranges (>24h), show date
+            timeLabel = date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+          }
+          
+          // Only show labels periodically to avoid clutter
+          const showLabel = index % Math.max(1, Math.floor(historyArray.length / 8)) === 0;
+          labels.push(showLabel ? timeLabel : '');
           
           const value = reading[sensor.apiKey];
           if (value !== undefined && value !== null) {
@@ -370,7 +548,7 @@ export default function EnvironmentalMonitor() {
           }
         });
         
-        const validValues = values.filter(v => v !== null);
+        const validValues = values.filter((v): v is number => v !== null);
         console.log(`${sensor.name} history: ${validValues.length} valid values`);
         
         processedHistory[sensor.id] = {
@@ -387,9 +565,13 @@ export default function EnvironmentalMonitor() {
     }
   };
 
+  // ============================================================================
   // HELPER FUNCTIONS
+  // Utility functions for common tasks
+  // ============================================================================
 
-  const getStatus = (value, sensor) => {
+  // Determine the status (Normal, High, Low, Critical) based on sensor value
+  const getStatus = (value: number | null | undefined, sensor: SensorDefinition): Status => {
     if (value === null || value === undefined) {
       return {
         label: 'No Data',
@@ -431,7 +613,8 @@ export default function EnvironmentalMonitor() {
     };
   };
 
-  const handleLogout = async () => {
+  // Handle user logout
+  const handleLogout = async (): Promise<void> => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -445,12 +628,16 @@ export default function EnvironmentalMonitor() {
     ]);
   };
 
+  // ============================================================================
   // RENDER HELPERS
+  // Variables and functions used in the UI
+  // ============================================================================
   
-  const selectedNodeData = nodes.find(n => (n.id || n.nodeId || n.uuid) === selectedNode);
+  const selectedNodeData = nodes.find((n: Node) => (n.id || n.nodeId || n.uuid) === selectedNode);
   const selectedNodeName = selectedNodeData?.friendlyName || selectedNodeData?.name || selectedNode || 'Unknown Node';
   const screenWidth = Dimensions.get('window').width;
 
+  // Dynamic styles that change based on dark/light mode
   const dynamicStyles = {
     container: { ...styles.container, backgroundColor: isDarkMode ? '#111827' : '#F9FAFB' },
     header: { ...styles.header, backgroundColor: isDarkMode ? '#1F2937' : '#FFFFFF', borderBottomColor: isDarkMode ? '#374151' : '#E5E7EB' },
@@ -472,10 +659,171 @@ export default function EnvironmentalMonitor() {
     chartSubtitle: { ...styles.chartSubtitle, color: isDarkMode ? '#9CA3AF' : '#6B7280' },
     footer: { ...styles.footer, backgroundColor: isDarkMode ? '#1F2937' : '#FFFFFF', borderTopColor: isDarkMode ? '#374151' : '#E5E7EB' },
     footerText: { ...styles.footerText, color: isDarkMode ? '#9CA3AF' : '#6B7280' },
+    dropdownButton: { ...styles.dropdownButton, backgroundColor: isDarkMode ? '#374151' : '#FFFFFF', borderColor: isDarkMode ? '#4B5563' : '#D1D5DB' },
+    dropdownButtonText: { ...styles.dropdownButtonText, color: isDarkMode ? '#F9FAFB' : '#111827' },
+    dropdownMenu: { ...styles.dropdownMenu, backgroundColor: isDarkMode ? '#1F2937' : '#FFFFFF', borderColor: isDarkMode ? '#374151' : '#E5E7EB' },
+    dropdownItem: { ...styles.dropdownItem, borderBottomColor: isDarkMode ? '#374151' : '#E5E7EB' },
+    dropdownItemText: { ...styles.dropdownItemText, color: isDarkMode ? '#D1D5DB' : '#374151' },
+    timeRangeButton: { ...styles.timeRangeButton, backgroundColor: isDarkMode ? '#374151' : '#F3F4F6', borderColor: isDarkMode ? '#4B5563' : '#D1D5DB' },
+    timeRangeButtonActive: { ...styles.timeRangeButtonActive, backgroundColor: isDarkMode ? '#3B82F6' : '#2563EB' },
+    timeRangeButtonText: { ...styles.timeRangeButtonText, color: isDarkMode ? '#9CA3AF' : '#6B7280' },
+    timeRangeButtonTextActive: { ...styles.timeRangeButtonTextActive, color: '#FFFFFF' },
   };
 
-  // SENSOR CARD COMPONENT
-  const SensorCard = ({ sensor }) => {
+  // ============================================================================
+  // UI COMPONENTS
+  // Reusable pieces of the interface
+  // ============================================================================
+
+  // Dropdown for selecting which sensor to view
+  const SensorDropdown: React.FC = () => {
+    const currentSensor = SENSOR_DEFINITIONS.find((s: SensorDefinition) => s.id === selectedSensor);
+    
+    return (
+      <View style={styles.dropdownContainer}>
+        <Text 
+          style={dynamicStyles.sectionLabel}
+          accessible={true}
+          accessibilityRole="header"
+        >
+          Select Sensor to View
+        </Text>
+        
+        {/* Dropdown Button */}
+        <TouchableOpacity
+          onPress={() => setIsDropdownOpen(!isDropdownOpen)}
+          style={dynamicStyles.dropdownButton}
+          accessible={true}
+          accessibilityRole="button"
+          accessibilityLabel={`Selected sensor: ${currentSensor?.name}. Tap to change.`}
+          accessibilityHint="Opens a menu to select a different sensor"
+        >
+          <View style={styles.dropdownButtonContent}>
+            <Ionicons 
+              name={currentSensor?.icon || 'help'} 
+              size={20} 
+              color={currentSensor?.color}
+              accessible={false}
+            />
+            <Text style={dynamicStyles.dropdownButtonText}>
+              {currentSensor?.name}
+            </Text>
+          </View>
+          <Ionicons 
+            name={isDropdownOpen ? 'chevron-up' : 'chevron-down'} 
+            size={20} 
+            color={isDarkMode ? '#9CA3AF' : '#6B7280'}
+            accessible={false}
+          />
+        </TouchableOpacity>
+        
+        {/* Dropdown Menu */}
+        {isDropdownOpen && (
+          <View 
+            style={dynamicStyles.dropdownMenu}
+            accessible={true}
+            accessibilityLabel="Sensor selection menu"
+          >
+            {SENSOR_DEFINITIONS.map((sensor: SensorDefinition) => (
+              <TouchableOpacity
+                key={sensor.id}
+                onPress={() => {
+                  setSelectedSensor(sensor.id);
+                  setIsDropdownOpen(false);
+                }}
+                style={[
+                  dynamicStyles.dropdownItem,
+                  sensor.id === selectedSensor && styles.dropdownItemActive
+                ]}
+                accessible={true}
+                accessibilityRole="button"
+                accessibilityLabel={sensor.name}
+                accessibilityState={{ selected: sensor.id === selectedSensor }}
+              >
+                <View style={styles.dropdownItemContent}>
+                  <Ionicons 
+                    name={sensor.icon} 
+                    size={20} 
+                    color={sensor.color}
+                    accessible={false}
+                  />
+                  <Text style={dynamicStyles.dropdownItemText}>
+                    {sensor.name}
+                  </Text>
+                </View>
+                {sensor.id === selectedSensor && (
+                  <Ionicons 
+                    name="checkmark" 
+                    size={20} 
+                    color={sensor.color}
+                    accessible={false}
+                  />
+                )}
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+      </View>
+    );
+  };
+
+  // Time range selector for historical graphs
+  const TimeRangeSelector: React.FC = () => {
+    return (
+      <View style={styles.timeRangeContainer}>
+        <Text 
+          style={dynamicStyles.sectionLabel}
+          accessible={true}
+          accessibilityRole="header"
+        >
+          Time Range
+        </Text>
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false}
+          accessible={true}
+          accessibilityLabel="Time range selection buttons"
+        >
+          {TIME_RANGES.map((range: TimeRange) => {
+            const isSelected = selectedTimeRange === range.id;
+            
+            return (
+              <TouchableOpacity
+                key={range.id}
+                onPress={() => setSelectedTimeRange(range.id)}
+                style={[
+                  dynamicStyles.timeRangeButton,
+                  isSelected && dynamicStyles.timeRangeButtonActive,
+                ]}
+                accessible={true}
+                accessibilityRole="button"
+                accessibilityLabel={range.label}
+                accessibilityState={{ selected: isSelected }}
+                accessibilityHint={`Shows data from the last ${range.label}`}
+              >
+                <Text
+                  style={[
+                    dynamicStyles.timeRangeButtonText,
+                    isSelected && dynamicStyles.timeRangeButtonTextActive,
+                  ]}
+                  accessible={false}
+                >
+                  {range.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
+    );
+  };
+
+  // Card displaying a single sensor's data
+  interface SensorCardProps {
+    sensor: SensorDefinition;
+  }
+
+  const SensorCard: React.FC<SensorCardProps> = ({ sensor }) => {
     const value = sensorData[sensor.id];
     const status = getStatus(value, sensor);
     const history = historyData[sensor.id];
@@ -488,6 +836,7 @@ export default function EnvironmentalMonitor() {
         accessibilityRole="summary"
         accessibilityLabel={`${sensor.name} sensor card. Current reading: ${value !== null && value !== undefined ? `${value.toFixed(sensor.decimalPlaces)} ${sensor.unit}` : 'no data'}. Status: ${status.label}`}
       >
+        {/* Sensor Header */}
         <View style={styles.cardHeader}>
           <Ionicons 
             name={sensor.icon} 
@@ -498,7 +847,7 @@ export default function EnvironmentalMonitor() {
           <Text style={dynamicStyles.cardTitle}>{sensor.name}</Text>
         </View>
 
-        {/* Current Value Display */}
+        {/* Current Reading Display */}
         <View style={styles.currentValueContainer}>
           <Text 
             style={dynamicStyles.currentValueLabel}
@@ -529,7 +878,7 @@ export default function EnvironmentalMonitor() {
           </View>
         </View>
 
-        {/* Thresholds */}
+        {/* Safety Thresholds */}
         <View style={styles.thresholdsContainer}>
           <Text 
             style={dynamicStyles.thresholdsTitle}
@@ -581,9 +930,9 @@ export default function EnvironmentalMonitor() {
           <Text 
             style={dynamicStyles.chartSubtitle}
             accessible={true}
-            accessibilityLabel={`24-hour history for ${sensor.name}`}
+            accessibilityLabel={`Historical data for ${sensor.name}`}
           >
-            24-Hour History
+            Historical Data ({TIME_RANGES.find(tr => tr.id === selectedTimeRange)?.label})
           </Text>
           {hasHistoryData ? (
             <LineChart
@@ -609,7 +958,7 @@ export default function EnvironmentalMonitor() {
               bezier
               style={styles.chart}
               accessible={true}
-              accessibilityLabel={`Line chart showing ${sensor.name} readings over the past 24 hours`}
+              accessibilityLabel={`Line chart showing ${sensor.name} readings over time`}
             />
           ) : (
             <Text 
@@ -625,7 +974,10 @@ export default function EnvironmentalMonitor() {
     );
   };
 
-  // MAIN COMPONENT RENDER
+  // ============================================================================
+  // MAIN RENDER
+  // The actual UI that gets displayed
+  // ============================================================================
 
   return (
     <ScrollView 
@@ -633,7 +985,7 @@ export default function EnvironmentalMonitor() {
       accessible={true}
       accessibilityLabel="Environmental monitoring dashboard"
     >
-      {/* HEADER */}
+      {/* Top Header with System Name */}
       <View style={dynamicStyles.header}>
         <View style={{ flex: 1 }}>
           <Text 
@@ -653,7 +1005,7 @@ export default function EnvironmentalMonitor() {
           </Text>
         </View>
 
-        {/* Dark Mode Toggle */}
+        {/* Dark Mode Toggle Button */}
         <TouchableOpacity
           onPress={toggleDarkMode}
           style={styles.themeButton}
@@ -688,7 +1040,7 @@ export default function EnvironmentalMonitor() {
         </TouchableOpacity>
       </View>
 
-      {/* NODE SELECTOR */}
+      {/* Node/Device Selector */}
       <View style={dynamicStyles.nodeSelector}>
         <Text 
           style={dynamicStyles.sectionLabel}
@@ -704,7 +1056,7 @@ export default function EnvironmentalMonitor() {
           accessible={true}
           accessibilityLabel="Node selection buttons"
         >
-          {nodes.map((node) => {
+          {nodes.map((node: Node) => {
             const nodeId = node.id || node.nodeId || node.uuid;
             const nodeName = node.friendlyName || node.name || nodeId;
             const isSelected = selectedNode === nodeId;
@@ -712,7 +1064,7 @@ export default function EnvironmentalMonitor() {
             return (
               <TouchableOpacity
                 key={nodeId}
-                onPress={() => setSelectedNode(nodeId)}
+                onPress={() => setSelectedNode(nodeId || null)}
                 style={[
                   dynamicStyles.nodeButton,
                   isSelected && dynamicStyles.nodeButtonActive,
@@ -738,7 +1090,21 @@ export default function EnvironmentalMonitor() {
         </ScrollView>
       </View>
 
-      {/* LOADING INDICATOR */}
+      {/* Sensor Selection Dropdown */}
+      {selectedNode && !isLoading && (
+        <View style={dynamicStyles.nodeSelector}>
+          <SensorDropdown />
+        </View>
+      )}
+
+      {/* Time Range Selector */}
+      {selectedNode && !isLoading && (
+        <View style={dynamicStyles.nodeSelector}>
+          <TimeRangeSelector />
+        </View>
+      )}
+
+      {/* Loading Indicator */}
       {isLoading && nodes.length === 0 && (
         <View 
           style={styles.loadingContainer}
@@ -757,7 +1123,7 @@ export default function EnvironmentalMonitor() {
         </View>
       )}
 
-      {/* ERROR MESSAGE */}
+      {/* Error Message Display */}
       {error && (
         <View 
           style={styles.errorContainer}
@@ -786,12 +1152,13 @@ export default function EnvironmentalMonitor() {
         </View>
       )}
 
-      {/* SENSOR CARDS - Render all sensors dynamically */}
-      {selectedNode && !isLoading && SENSOR_DEFINITIONS.map(sensor => (
-        <SensorCard key={sensor.id} sensor={sensor} />
-      ))}
+      {/* Display Selected Sensor Card */}
+      {selectedNode && !isLoading && (() => {
+        const sensor = SENSOR_DEFINITIONS.find((s: SensorDefinition) => s.id === selectedSensor);
+        return sensor ? <SensorCard key={sensor.id} sensor={sensor} /> : null;
+      })()}
 
-      {/* FOOTER */}
+      {/* Footer with System Status */}
       <View style={dynamicStyles.footer}>
         <View style={styles.footerItem}>
           <View 
@@ -829,6 +1196,7 @@ export default function EnvironmentalMonitor() {
 
 // ============================================================================
 // STYLES
+// All the styling for the components
 // ============================================================================
 
 const styles = StyleSheet.create({
@@ -880,6 +1248,75 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   nodeButtonTextActive: {},
+  
+  // Dropdown Styles
+  dropdownContainer: {
+    marginTop: 8,
+  },
+  dropdownButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 8,
+    borderWidth: 2,
+  },
+  dropdownButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  dropdownButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  dropdownMenu: {
+    marginTop: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  dropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  dropdownItemContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  dropdownItemText: {
+    fontSize: 15,
+  },
+  dropdownItemActive: {
+    opacity: 0.7,
+  },
+
+  // Time Range Selector Styles
+  timeRangeContainer: {
+    marginTop: 8,
+  },
+  timeRangeButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    marginRight: 8,
+    minWidth: 50,
+    alignItems: 'center',
+  },
+  timeRangeButtonActive: {},
+  timeRangeButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  timeRangeButtonTextActive: {},
+  
   loadingContainer: {
     padding: 40,
     alignItems: 'center',

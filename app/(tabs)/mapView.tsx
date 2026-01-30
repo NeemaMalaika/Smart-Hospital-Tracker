@@ -132,6 +132,12 @@ const HospitalFloorPlan = () => {
 
           console.log(`📊 Response status for ${nodeId}:`, response.status);
 
+          // Handle 204 No Content - no location data available yet
+          if (response.status === 204) {
+            console.log(`⚠️ No location data available for ${nodeId} (204)`);
+            return; // Skip this node
+          }
+
           if (response.ok) {
             const data = await response.json();
             console.log(`✅ RAW RESPONSE DATA for ${nodeId}:`, JSON.stringify(data, null, 2));
@@ -209,6 +215,15 @@ const HospitalFloorPlan = () => {
         headers: getHeaders(),
       }
     );
+
+    console.log('📜 History response status:', response.status);
+
+    // Handle 204 No Content - no history data available yet
+    if (response.status === 204) {
+      console.log('⚠️ No location history available (204)');
+      setHistoryData([]);
+      return;
+    }
 
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
