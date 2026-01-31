@@ -1,3 +1,3 @@
 #!/bin/bash
 
-npm i && npm expo start
+npm i && npx expo start
