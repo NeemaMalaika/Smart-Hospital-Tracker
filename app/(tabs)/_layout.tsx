@@ -1,7 +1,7 @@
-import { Tabs, useRouter, useSegments } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Tabs, useRouter, useSegments } from 'expo-router';
+import { useEffect, useState } from 'react';
 
 export default function TabLayout() {
   const router = useRouter();
@@ -63,16 +63,26 @@ export default function TabLayout() {
         }}
       />
 
-      {/* Explore / Dev Screen */}
       <Tabs.Screen
-        name="explore"
+        name="mapView"
         options={{
-          title: 'Explore',
+          title: 'Map View',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="code-slash" size={size} color={color} />
+            <Ionicons name="map-outline" size={size} color={color} />
           ),
         }}
       />
+
+      <Tabs.Screen
+        name="alert"
+        options={{
+          title: 'Alerts',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="warning-outline" size={size} color={color} />
+          ),
+        }}
+      />
+
 
       {/* Admin / Config Screen */}
       <Tabs.Screen
@@ -84,15 +94,6 @@ export default function TabLayout() {
           ),
         }}
       />
-      <Tabs.Screen
-        name="alerts"
-        options={{
-          title: 'Alerts',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="warning-outline" size={size} color={color} />
-         ),
-        }}
-/>
     </Tabs>
   );
 }
