@@ -13,6 +13,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import ApiService from '../../services/api';
 
 const API_BASE_URL = 'https://backend.smartenvironment.tech/api/v1';
 const API_ENDPOINTS = {
@@ -310,6 +311,30 @@ export default function ConfigScreen() {
 
         <TouchableOpacity onPress={fetchNodes} style={styles.iconButton}>
           <Ionicons name="refresh" size={22} color={isDarkMode ? '#93C5FD' : '#2563EB'} />
+        </TouchableOpacity>
+
+        {/* LOGOUT BUTTON */}
+        <TouchableOpacity 
+          onPress={() => {
+            Alert.alert(
+              'Logout',
+              'Are you sure you want to logout?',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Logout',
+                  style: 'destructive',
+                  onPress: async () => {
+                    await ApiService.logout();
+                    router.replace('/(tabs)/login');
+                  },
+                },
+              ]
+            );
+          }} 
+          style={styles.iconButton}
+        >
+          <Ionicons name="log-out-outline" size={22} color={isDarkMode ? '#F87171' : '#DC2626'} />
         </TouchableOpacity>
       </View>
 

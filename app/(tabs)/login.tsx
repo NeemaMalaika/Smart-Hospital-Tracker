@@ -9,22 +9,12 @@ import {
   Platform,
   ScrollView,
   Alert,
-  AccessibilityInfo,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
-/**
- * DEMO AUTHENTICATION CREDENTIALS
- * --------------------------------
- * These credentials are hard-coded for Sprint 1 demonstration purposes.
- * A real system would authenticate users via a secure backend.
- */
-const DEMO_CREDENTIALS = {
-  username: 'admin',
-  password: 'hospital123',
-};
+import ApiService from '../../services/api';
+import CryptoJS from 'crypto-js';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -37,75 +27,57 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Security state
-  const [attempts, setAttempts] = useState(0);
-  const [isLocked, setIsLocked] = useState(false);
-
   /**
-   * Handles demo login logic.
-   * Uses screen reader announcements for accessibility.
+   * Handle real backend login
    */
   const handleLogin = async () => {
-    if (isLocked) {
-      Alert.alert('Account Locked', 'Too many failed attempts.');
-      AccessibilityInfo.announceForAccessibility(
-        'Account locked due to too many failed attempts'
-      );
+    // TEMPORARY TEST - Remove after debugging
+    const testHash = CryptoJS.SHA256('password123').toString(CryptoJS.enc.Hex);
+    console.log('TEST: SHA256 hash of "password123":', testHash);
+    console.log('Expected hash should be:', 'ef92b778bafe771e89245b89ecbc08a44a4e166c06659911881f383d4473e94f');
+    // END TEMPORARY TEST
+      
+    // Validation
+    if (!username.trim() || !password.trim()) {
+      Alert.alert('Error', 'Please enter both username and password');
       return;
     }
 
-    if (!username || !password) {
-      Alert.alert('Error', 'Please enter both username and password');
-      AccessibilityInfo.announceForAccessibility(
-        'Login error. Username and password are required'
-      );
+    if (username.trim().length < 3) {
+      Alert.alert('Error', 'Username must be at least 3 characters');
+      return;
+    }
+
+    if (password.length < 6) {
+      Alert.alert('Error', 'Password must be at least 6 characters');
       return;
     }
 
     setIsLoading(true);
-    AccessibilityInfo.announceForAccessibility('Authenticating, please wait');
 
-    // Simulated network delay
-    setTimeout(async () => {
-      const loginSuccess =
-        username === DEMO_CREDENTIALS.username &&
-        password === DEMO_CREDENTIALS.password;
+    try {
+      const response = await ApiService.login({
+        username: username.trim(),
+        password: password,
+      });
 
-      if (loginSuccess) {
-        // Store authentication state (demo session)
-        await AsyncStorage.setItem('isAuthenticated', 'true');
-        await AsyncStorage.setItem('username', username);
-
-        AccessibilityInfo.announceForAccessibility(
-          'Login successful. Redirecting to dashboard'
-        );
-
+      if (response.success) {
+        // Login successful - navigate to main app
         router.replace('/(tabs)');
       } else {
-        const newAttempts = attempts + 1;
-        setAttempts(newAttempts);
-
-        if (newAttempts >= 5) {
-          setIsLocked(true);
-          Alert.alert('Account Locked', 'Too many failed attempts.');
-          AccessibilityInfo.announceForAccessibility(
-            'Account locked after multiple failed attempts'
-          );
-        } else {
-          Alert.alert(
-            'Login Failed',
-            `Invalid credentials. ${5 - newAttempts} attempts remaining.`
-          );
-          AccessibilityInfo.announceForAccessibility(
-            'Login failed. Invalid username or password'
-          );
-        }
-
-        setPassword('');
+        // Login failed - show error
+        Alert.alert(
+          'Login Failed',
+          response.message || 'Invalid username or password'
+        );
+        setPassword(''); // Clear password on failure
       }
-
+    } catch (error) {
+      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+      console.error('Login error:', error);
+    } finally {
       setIsLoading(false);
-    }, 1000);
+    }
   };
 
   return (
@@ -118,17 +90,14 @@ export default function LoginScreen() {
         keyboardShouldPersistTaps="handled"
       >
         {/* App Icon */}
-        <View style={styles.logoContainer} accessible accessibilityLabel="Secure login">
+        <View style={styles.logoContainer}>
           <View style={styles.logoCircle}>
             <Ionicons name="lock-closed" size={48} color="#ffffff" />
           </View>
         </View>
 
         {/* Page Title */}
-        <Text style={styles.title} accessibilityRole="header">
-          Secure Access
-        </Text>
-
+        <Text style={styles.title}>Secure Access</Text>
         <Text style={styles.subtitle}>
           Enter your credentials to access the monitoring system
         </Text>
@@ -139,14 +108,13 @@ export default function LoginScreen() {
           <View style={styles.inputContainer}>
             <Text style={styles.label}>Username</Text>
             <TextInput
-              style={[styles.input, isLocked && styles.inputDisabled]}
+              style={styles.input}
               value={username}
               onChangeText={setUsername}
               placeholder="Enter your username"
               autoCapitalize="none"
-              editable={!isLocked}
-              accessibilityLabel="Username input"
-              accessibilityHint="Enter your username"
+              editable={!isLoading}
+              autoCorrect={false}
             />
           </View>
 
@@ -156,28 +124,21 @@ export default function LoginScreen() {
 
             <View style={styles.passwordContainer}>
               <TextInput
-                style={[styles.passwordInput, isLocked && styles.inputDisabled]}
+                style={styles.passwordInput}
                 value={password}
                 onChangeText={setPassword}
                 placeholder="Enter your password"
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
-                editable={!isLocked}
-                accessibilityLabel="Password input"
-                accessibilityHint="Enter your password"
+                editable={!isLoading}
+                autoCorrect={false}
               />
 
               {/* Show / Hide password */}
               <TouchableOpacity
-                onPress={() => {
-                  setShowPassword(!showPassword);
-                  AccessibilityInfo.announceForAccessibility(
-                    showPassword ? 'Password hidden' : 'Password visible'
-                  );
-                }}
+                onPress={() => setShowPassword(!showPassword)}
                 style={styles.eyeButton}
-                accessibilityRole="button"
-                accessibilityLabel="Toggle password visibility"
+                disabled={isLoading}
               >
                 <Ionicons
                   name={showPassword ? 'eye-off' : 'eye'}
@@ -186,42 +147,50 @@ export default function LoginScreen() {
                 />
               </TouchableOpacity>
             </View>
-
-            <Text style={styles.helperText}>
-              Demo credentials: admin / hospital123
-            </Text>
           </View>
 
           {/* Login Button */}
           <TouchableOpacity
             style={[
               styles.loginButton,
-              (isLoading || isLocked || !username || !password) &&
+              (isLoading || !username || !password) &&
                 styles.loginButtonDisabled,
             ]}
             onPress={handleLogin}
-            disabled={isLoading || isLocked || !username || !password}
-            accessibilityRole="button"
-            accessibilityLabel="Sign in"
-            accessibilityHint="Attempts to log into the system"
+            disabled={isLoading || !username || !password}
           >
-            <Text style={styles.loginButtonText}>
-              {isLoading ? 'Authenticating...' : 'Sign In'}
-            </Text>
+            {isLoading ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <Text style={styles.loginButtonText}>Sign In</Text>
+            )}
           </TouchableOpacity>
-        </View>
+
+        {/* {/* Register Link
+          <View style={styles.registerLinkContainer}>
+            <Text style={styles.registerLinkText}>Don't have an account? </Text>
+            <TouchableOpacity
+              onPress={() => router.push('/(tabs)/register')}
+              disabled={isLoading}
+            >
+              <Text style={styles.registerLink}>Sign Up</Text>
+            </TouchableOpacity>
+          </View>
+            */}
+        </View> 
 
         {/* Footer Notice */}
         <View style={styles.securityNotice}>
           <Ionicons name="shield-checkmark" size={16} color="#6B7280" />
           <Text style={styles.securityText}>
-            Demo system. Authentication is simulated for Sprint 1.
+            Secure authentication with 24-hour session
           </Text>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -283,10 +252,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#111827',
   },
-  inputDisabled: {
-    backgroundColor: '#F3F4F6',
-    color: '#9CA3AF',
-  },
   passwordContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -303,11 +268,6 @@ const styles = StyleSheet.create({
   },
   eyeButton: {
     padding: 12,
-  },
-  helperText: {
-    fontSize: 12,
-    color: '#6B7280',
-    marginTop: 6,
   },
   loginButton: {
     backgroundColor: '#3B82F6',
@@ -329,6 +289,20 @@ const styles = StyleSheet.create({
   loginButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
+    fontWeight: '600',
+  },
+  registerLinkContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: 20,
+  },
+  registerLinkText: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  registerLink: {
+    fontSize: 14,
+    color: '#2563EB',
     fontWeight: '600',
   },
   securityNotice: {
