@@ -46,24 +46,20 @@ const HospitalFloorPlan = () => {
       id: 'room-101', 
       name: 'ER', 
       color: '#10b981', 
-      // Polygon for Left Top
       polygon: [{x:0, y:0}, {x:5, y:0}, {x:5, y:4}, {x:0, y:4}] 
     },
     { 
       id: 'room-102', 
       name: 'Operating Theatre 1', 
       color: '#3b82f6', 
-      // Polygon for Left Middle
       polygon: [{x:0, y:4}, {x:5, y:4}, {x:5, y:8}, {x:0, y:8}] 
     },
     { 
       id: 'room-103', 
       name: 'Radiology', 
       color: '#8b5cf6', 
-      // Polygon for Left Bottom
       polygon: [{x:0, y:8}, {x:5, y:8}, {x:5, y:12}, {x:0, y:12}] 
     },
-    // Corridor in the middle
     {
       id: 'corridor',
       name: 'Corridor',
@@ -74,21 +70,18 @@ const HospitalFloorPlan = () => {
       id: 'room-201', 
       name: 'Pharmacy', 
       color: '#f59e0b', 
-      // Polygon for Right Top
       polygon: [{x:7, y:0}, {x:12, y:0}, {x:12, y:4}, {x:7, y:4}] 
     },
     { 
       id: 'room-202', 
       name: 'Intensive Care Unit', 
       color: '#ec4899', 
-      // Polygon for Right Middle
       polygon: [{x:7, y:4}, {x:12, y:4}, {x:12, y:8}, {x:7, y:8}] 
     },
     { 
       id: 'room-203', 
       name: 'GPU', 
       color: '#06b6d4', 
-      // Polygon for Right Bottom
       polygon: [{x:7, y:8}, {x:12, y:8}, {x:12, y:12}, {x:7, y:12}] 
     },
   ];
@@ -446,7 +439,7 @@ const HospitalFloorPlan = () => {
   // Calculate stats for the SVG map
   const roomStats = rooms.reduce((acc, room) => {
     const count = getNodesInRoom(room.id).length;
-    acc[room.name] = count; // Using room.name because your API location matches name strings
+    acc[room.name] = count;
     return acc;
   }, {});
 
