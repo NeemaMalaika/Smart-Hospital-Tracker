@@ -1,3 +1,4 @@
+import { FloorPlanMap } from '@/components/FloorPlanMap';
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
 import {
@@ -41,12 +42,55 @@ const HospitalFloorPlan = () => {
   // HOSPITAL ROOM CONFIGURATION
   // ============================================================================
   const rooms = [
-    { id: 'room-101', name: 'ER', color: '#10b981', position: 'left', emoji: '🛏️' },
-    { id: 'room-102', name: 'Operating Theatre 1', color: '#3b82f6', position: 'left', emoji: '🛏️' },
-    { id: 'room-103', name: 'Radiology', color: '#8b5cf6', position: 'left', emoji: '🛏️' },
-    { id: 'room-201', name: 'Pharmacy', color: '#f59e0b', position: 'right', emoji: '🛏️' },
-    { id: 'room-202', name: 'Intensive Care Unit', color: '#ec4899', position: 'right', emoji: '🛏️' },
-    { id: 'room-203', name: 'GPU', color: '#06b6d4', position: 'right', emoji: '🛏️' },
+    { 
+      id: 'room-101', 
+      name: 'ER', 
+      color: '#10b981', 
+      // Polygon for Left Top
+      polygon: [{x:0, y:0}, {x:5, y:0}, {x:5, y:4}, {x:0, y:4}] 
+    },
+    { 
+      id: 'room-102', 
+      name: 'Operating Theatre 1', 
+      color: '#3b82f6', 
+      // Polygon for Left Middle
+      polygon: [{x:0, y:4}, {x:5, y:4}, {x:5, y:8}, {x:0, y:8}] 
+    },
+    { 
+      id: 'room-103', 
+      name: 'Radiology', 
+      color: '#8b5cf6', 
+      // Polygon for Left Bottom
+      polygon: [{x:0, y:8}, {x:5, y:8}, {x:5, y:12}, {x:0, y:12}] 
+    },
+    // Corridor in the middle
+    {
+      id: 'corridor',
+      name: 'Corridor',
+      color: '#9ca3af',
+      polygon: [{x:5, y:0}, {x:7, y:0}, {x:7, y:12}, {x:5, y:12}]
+    },
+    { 
+      id: 'room-201', 
+      name: 'Pharmacy', 
+      color: '#f59e0b', 
+      // Polygon for Right Top
+      polygon: [{x:7, y:0}, {x:12, y:0}, {x:12, y:4}, {x:7, y:4}] 
+    },
+    { 
+      id: 'room-202', 
+      name: 'Intensive Care Unit', 
+      color: '#ec4899', 
+      // Polygon for Right Middle
+      polygon: [{x:7, y:4}, {x:12, y:4}, {x:12, y:8}, {x:7, y:8}] 
+    },
+    { 
+      id: 'room-203', 
+      name: 'GPU', 
+      color: '#06b6d4', 
+      // Polygon for Right Bottom
+      polygon: [{x:7, y:8}, {x:12, y:8}, {x:12, y:12}, {x:7, y:12}] 
+    },
   ];
 
   // ============================================================================
@@ -399,6 +443,13 @@ const HospitalFloorPlan = () => {
   // RENDER
   // ============================================================================
   
+  // Calculate stats for the SVG map
+  const roomStats = rooms.reduce((acc, room) => {
+    const count = getNodesInRoom(room.id).length;
+    acc[room.name] = count; // Using room.name because your API location matches name strings
+    return acc;
+  }, {});
+
   return (
     <ScrollView style={dynamicStyles.container}>
       {/* HEADER */}
@@ -535,38 +586,21 @@ const HospitalFloorPlan = () => {
       {/* FLOOR PLAN VISUAL */}
       <View style={[styles.section, dynamicStyles.card]}>
         <View style={styles.sectionHeader}>
-          <Ionicons name="business" size={24} color="#3b82f6" />
-          <Text style={[styles.sectionTitle, dynamicStyles.text]}>Hospital Map</Text>
+          <Ionicons name="map" size={24} color="#3b82f6" />
+          <Text style={[styles.sectionTitle, dynamicStyles.text]}>Live Floor Plan</Text>
         </View>
 
-        <View style={styles.floorPlanContainer}>
-          {/* LEFT SIDE ROOMS */}
-          <View style={styles.roomColumn}>
-            <Text style={[styles.columnLabel, dynamicStyles.subtext]}>← Left Wing</Text>
-            {rooms.filter(r => r.position === 'left').map(room => (
-              <RoomCard key={room.id} room={room} />
-            ))}
-          </View>
-
-          {/* CORRIDOR */}
-          <View style={[styles.corridor, { backgroundColor: isDarkMode ? '#374151' : '#E5E7EB' }]}>
-            <Ionicons name="arrow-down" size={24} color={isDarkMode ? '#9CA3AF' : '#6B7280'} />
-            <Text style={[styles.corridorText, dynamicStyles.subtext]}>CORRIDOR</Text>
-            <Ionicons name="arrow-down" size={24} color={isDarkMode ? '#9CA3AF' : '#6B7280'} />
-            <View style={styles.entrance}>
-              <Ionicons name="enter" size={20} color={isDarkMode ? '#9CA3AF' : '#6B7280'} />
-              <Text style={[styles.entranceText, dynamicStyles.subtext]}>Entrance</Text>
-            </View>
-          </View>
-
-          {/* RIGHT SIDE ROOMS */}
-          <View style={styles.roomColumn}>
-            <Text style={[styles.columnLabel, dynamicStyles.subtext]}>Right Wing →</Text>
-            {rooms.filter(r => r.position === 'right').map(room => (
-              <RoomCard key={room.id} room={room} />
-            ))}
-          </View>
-        </View>
+        <FloorPlanMap 
+          rooms={rooms}
+          stats={roomStats}
+          selectedRoomId={selectedRoom}
+          onRoomSelect={setSelectedRoom}
+          isDarkMode={isDarkMode}
+        />
+        
+        <Text style={[styles.subtext, { textAlign: 'center', marginTop: 12, fontSize: 12 }]}>
+          Pinch to zoom • Drag to pan • Tap room for details
+        </Text>
       </View>
 
       {/* ROOM DETAILS / HISTORY */}
