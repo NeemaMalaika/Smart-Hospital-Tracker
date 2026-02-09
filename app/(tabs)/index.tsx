@@ -145,7 +145,8 @@ const SENSOR_DEFINITIONS: SensorDefinition[] = [
     unit: 'lux',
     icon: 'sunny',
     color: '#FBBF24',
-    apiKey:'light',
+    apiKey: ['lightRed', 'lightGreen', 'lightBlue', 'lightClear'],  // Combined
+    aggregate: 'average',
     thresholds: { min: 0, max: 1000, critical: 2000 },
     decimalPlaces: 0,
   },
@@ -206,7 +207,7 @@ export default function EnvironmentalMonitor() {
     console.log('📊 Dashboard mounted - auth already checked by _layout.tsx');
     loadConfig();
     loadThemePreference();
-    // Only fetch nodes after token is loaded
+    // ✅ CHANGED: Only fetch nodes after token is loaded
     if (isTokenLoaded) {
       fetchNodes();
     }
@@ -607,15 +608,7 @@ export default function EnvironmentalMonitor() {
   // Searchable Node Selector
   const NodeSelector: React.FC = () => {
     return (
-      <View style={dynamicStyles.section}>
-        <Text 
-          style={dynamicStyles.sectionLabel}
-          accessible={true}
-          accessibilityRole="header"
-        >
-          Select Node
-        </Text>
-        
+      <View style={dynamicStyles.section}>        
         <View style={styles.searchContainer}>
           <Ionicons 
             name="search" 
@@ -626,7 +619,7 @@ export default function EnvironmentalMonitor() {
           />
           <TextInput
             style={dynamicStyles.searchInput}
-            placeholder="Search nodes..."
+            placeholder="Select a device..."
             placeholderTextColor={isDarkMode ? '#6B7280' : '#9CA3AF'}
             value={nodeSearchQuery}
             onChangeText={setNodeSearchQuery}
