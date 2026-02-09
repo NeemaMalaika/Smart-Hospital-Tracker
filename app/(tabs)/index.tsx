@@ -132,12 +132,12 @@ const SENSOR_DEFINITIONS: SensorDefinition[] = [
   {
     id: 'pressure',
     name: 'Pressure',
-    unit: 'hPa',
+    unit: 'kPa',
     icon: 'speedometer',
     color: '#8B5CF6',
     apiKey: 'pressure',
     thresholds: { min: 980, max: 1020, critical: 1040 },
-    decimalPlaces: 0,
+    decimalPlaces: 2,
   },
   {
     id: 'light',
@@ -368,7 +368,7 @@ export default function EnvironmentalMonitor() {
           }
         } else {
           // Single sensor
-          const value = data[sensor.apiKey];
+          const value = sensor.apiKey === 'pressure' ? data[sensor.apiKey] / 1000 : data[sensor.apiKey];
           if (value !== undefined && value !== null) {
             processedData[sensor.id] = parseFloat(value);
           }
