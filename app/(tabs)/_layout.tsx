@@ -2,7 +2,9 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Tabs, useRouter, useSegments } from 'expo-router';
 import { useEffect, useState } from 'react';
-import ApiService from '../../services/api';
+
+// Flag to track if we've cleared auth this session (persists across component remounts)
+let hasInitializedSession = false;
 
 export default function TabLayout() {
   const router = useRouter();
@@ -10,52 +12,86 @@ export default function TabLayout() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Initialize auth ONCE per app session
   useEffect(() => {
-    checkAuth();
+    const initializeAuth = async () => {
+      try {
+        // Only clear auth if this is a fresh app launch
+        if (!hasInitializedSession) {
+          await AsyncStorage.removeItem('isAuthenticated');
+          console.log('🔐 Fresh app launch - authentication cleared');
+          hasInitializedSession = true;
+          setIsAuthenticated(false);
+        } else {
+          // Check existing auth status
+          const authStatus = await AsyncStorage.getItem('isAuthenticated');
+          const isValid = authStatus === 'true';
+          setIsAuthenticated(isValid);
+          console.log('🔐 Checking auth:', isValid ? 'Authenticated' : 'Not authenticated');
+        }
+      } catch (error) {
+        console.error('❌ Error initializing auth:', error);
+        setIsAuthenticated(false);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    initializeAuth();
   }, []);
 
-  // Re-check auth when segments change (when user navigates)
+  // Listen for auth changes when navigation happens
   useEffect(() => {
-    const onLoginPage = segments[1] === 'login';
-    const onRegisterPage = segments[1] === 'register';
-    
-    if (!isAuthenticated && !onLoginPage && !onRegisterPage && !isLoading) {
-      router.replace('/(tabs)/login');
-    }
-  }, [segments, isAuthenticated, isLoading]);
+    if (isLoading) return;
 
-  const checkAuth = async () => {
-    try {
-      const isValid = await ApiService.verifyAuth();
-      setIsAuthenticated(isValid);
+    // Small delay to let AsyncStorage updates complete
+    const recheckAuth = async () => {
+      try {
+        // Wait a tiny bit for AsyncStorage to finish writing
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        const authStatus = await AsyncStorage.getItem('isAuthenticated');
+        const isValid = authStatus === 'true';
+        
+        const onLoginPage = segments[1] === 'login';
+        const onRegisterPage = segments[1] === 'register';
 
-      const onLoginPage = segments[1] === 'login';
-      const onRegisterPage = segments[1] === 'register';
+        console.log('📍 Navigation check:', {
+          authenticated: isValid,
+          page: segments[1] || 'main',
+        });
 
-      if (!isValid && !onLoginPage && !onRegisterPage) {
-        router.replace('/(tabs)/login');
-      } else if (isValid && (onLoginPage || onRegisterPage)) {
-        router.replace('/(tabs)');
+        // Update local state
+        setIsAuthenticated(isValid);
+
+        // Handle redirects
+        if (!isValid && !onLoginPage && !onRegisterPage) {
+          console.log('🚫 Not authenticated - redirecting to login');
+          router.replace('/(tabs)/login');
+        } else if (isValid && (onLoginPage || onRegisterPage)) {
+          console.log('✅ Already authenticated - redirecting to dashboard');
+          router.replace('/(tabs)');
+        }
+      } catch (error) {
+        console.error('❌ Error rechecking auth:', error);
+        setIsAuthenticated(false);
+        const onLoginPage = segments[1] === 'login';
+        const onRegisterPage = segments[1] === 'register';
+        if (!onLoginPage && !onRegisterPage) {
+          router.replace('/(tabs)/login');
+        }
       }
-    } catch (error) {
-      console.error('Auth check error:', error);
-      setIsAuthenticated(false);
-      const onLoginPage = segments[1] === 'login';
-      const onRegisterPage = segments[1] === 'register';
-      if (!onLoginPage && !onRegisterPage) {
-        router.replace('/(tabs)/login');
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    };
 
-  // Show nothing while checking auth
+    recheckAuth();
+  }, [segments, isLoading]);
+
+  // Show loading while initializing
   if (isLoading) {
     return null;
   }
 
-  // If not authenticated and not on login/register page, force to login
+  // Block rendering if not authenticated and not on login/register
   if (!isAuthenticated && segments[1] !== 'login' && segments[1] !== 'register') {
     return null;
   }
@@ -68,9 +104,10 @@ export default function TabLayout() {
       }}
       screenListeners={{
         tabPress: (e) => {
-          // Prevent navigation if not authenticated
+          // Prevent tab navigation if not authenticated
           if (!isAuthenticated) {
             e.preventDefault();
+            console.log('🚫 Tab press blocked - not authenticated');
             router.replace('/(tabs)/login');
           }
         },
@@ -103,7 +140,7 @@ export default function TabLayout() {
         }}
       />
 
-      {/* Explore / Dev Screen */}
+      {/* Map View Screen */}
       <Tabs.Screen
         name="mapView"
         options={{
@@ -114,6 +151,7 @@ export default function TabLayout() {
         }}
       />
 
+      {/* Alerts Screen */}
       <Tabs.Screen
         name="alert"
         options={{
@@ -123,7 +161,6 @@ export default function TabLayout() {
           ),
         }}
       />
-
 
       {/* Admin / Config Screen */}
       <Tabs.Screen

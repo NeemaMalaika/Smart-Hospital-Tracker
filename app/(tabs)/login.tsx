@@ -13,8 +13,10 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import ApiService from '../../services/api';
 import CryptoJS from 'crypto-js';
+import Toast from '../../components/toast';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -27,54 +29,87 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
+  // Toast notification state
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+  const [toastType, setToastType] = useState<'success' | 'error' | 'info'>('info');
+
+  const showToast = (message: string, type: 'success' | 'error' | 'info') => {
+    setToastMessage(message);
+    setToastType(type);
+    setToastVisible(true);
+  };
+
   /**
    * Handle real backend login
    */
   const handleLogin = async () => {
-    // TEMPORARY TEST - Remove after debugging
-    const testHash = CryptoJS.SHA256('password123').toString(CryptoJS.enc.Hex);
-    console.log('TEST: SHA256 hash of "password123":', testHash);
-    console.log('Expected hash should be:', 'ef92b778bafe771e89245b89ecbc08a44a4e166c06659911881f383d4473e94f');
-    // END TEMPORARY TEST
-      
     // Validation
     if (!username.trim() || !password.trim()) {
-      Alert.alert('Error', 'Please enter both username and password');
+      Alert.alert('❌ Error', 'Please enter both username and password');
       return;
     }
 
     if (username.trim().length < 3) {
-      Alert.alert('Error', 'Username must be at least 3 characters');
+      Alert.alert('❌ Error', 'Username must be at least 3 characters');
       return;
     }
 
     if (password.length < 6) {
-      Alert.alert('Error', 'Password must be at least 6 characters');
+      Alert.alert('❌ Error', 'Password must be at least 6 characters');
       return;
     }
 
     setIsLoading(true);
 
     try {
+      console.log('🔐 Attempting login...');
+      
       const response = await ApiService.login({
         username: username.trim(),
         password: password,
       });
 
+      console.log('📡 Login response:', response.success);
+      console.log('📡 Full response:', response);
+
       if (response.success) {
-        // Login successful - navigate to main app
-        router.replace('/(tabs)');
+        // Set authentication flag FIRST
+        await AsyncStorage.setItem('isAuthenticated', 'true');
+        console.log('✅ Authentication set to true');
+        
+        //  Save session token if available for API requests
+        if (response.token) {
+          await AsyncStorage.setItem('sessionToken', response.token);
+          console.log('✅ Session token saved:', response.token);
+        } else if (response.data?.token) {
+          await AsyncStorage.setItem('sessionToken', response.data.token);
+          console.log('✅ Session token saved from data:', response.data.token);
+        } else if (response.access_token) {
+          await AsyncStorage.setItem('sessionToken', response.access_token);
+          console.log('✅ Access token saved:', response.access_token);
+        } else {
+          console.log('⚠️ No token found in response, using API-KEY only');
+        }
+        
+        // Show success toast
+        showToast(`Welcome back, ${username}! Login successful.`, 'success');
+        
+        // Navigate to dashboard after short delay
+        setTimeout(() => {
+          console.log(' Navigating to dashboard...');
+          router.replace('/(tabs)');
+        }, 800);
+        
       } else {
-        // Login failed - show error
-        Alert.alert(
-          'Login Failed',
-          response.message || 'Invalid username or password'
-        );
+        // Login failed - show error toast
+        console.log(' Login failed');
+        showToast('Incorrect username or password. Please try again.', 'error');
         setPassword(''); // Clear password on failure
       }
     } catch (error) {
-      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
-      console.error('Login error:', error);
+      console.error(' Login error:', error);
+      showToast('Unable to connect to server. Check your internet connection.', 'error');
     } finally {
       setIsLoading(false);
     }
@@ -85,6 +120,14 @@ export default function LoginScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={styles.container}
     >
+      {/* Toast Notification */}
+      <Toast
+        visible={toastVisible}
+        message={toastMessage}
+        type={toastType}
+        onHide={() => setToastVisible(false)}
+      />
+      
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
@@ -165,18 +208,6 @@ export default function LoginScreen() {
               <Text style={styles.loginButtonText}>Sign In</Text>
             )}
           </TouchableOpacity>
-
-        {/* {/* Register Link
-          <View style={styles.registerLinkContainer}>
-            <Text style={styles.registerLinkText}>Don't have an account? </Text>
-            <TouchableOpacity
-              onPress={() => router.push('/(tabs)/register')}
-              disabled={isLoading}
-            >
-              <Text style={styles.registerLink}>Sign Up</Text>
-            </TouchableOpacity>
-          </View>
-            */}
         </View> 
 
         {/* Footer Notice */}
@@ -289,20 +320,6 @@ const styles = StyleSheet.create({
   loginButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
-    fontWeight: '600',
-  },
-  registerLinkContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginTop: 20,
-  },
-  registerLinkText: {
-    fontSize: 14,
-    color: '#6B7280',
-  },
-  registerLink: {
-    fontSize: 14,
-    color: '#2563EB',
     fontWeight: '600',
   },
   securityNotice: {
