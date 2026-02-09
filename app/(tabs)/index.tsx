@@ -143,12 +143,13 @@ const SENSOR_DEFINITIONS: SensorDefinition[] = [
   {
     id: 'pressure',
     name: 'Pressure',
-    unit: 'hPa',
+    unit: 'kPa',
     icon: 'speedometer',
     color: '#8B5CF6',
     apiKey: 'pressure',
-    thresholds: { min: 980, max: 1020, critical: 1040 },
-    decimalPlaces: 0,
+    // If backend returns Pa and we convert to kPa (/1000), these thresholds should be kPa.
+    thresholds: { min: 98, max: 102, critical: 104 },
+    decimalPlaces: 2,
   },
   {
     id: 'light',
@@ -192,11 +193,11 @@ export default function EnvironmentalMonitor() {
   const { width: windowWidth } = useWindowDimensions();
   const isPhone = windowWidth < 768;
 
-  // Phone sizing rules
-  const chartWidth = Math.max(260, (isPhone ? windowWidth - 48 : windowWidth - 80));
+  // Chart sizing (phone changes)
+  const chartWidth = Math.max(260, isPhone ? windowWidth - 48 : windowWidth - 80);
   const chartHeight = isPhone ? 160 : 180;
 
-  // Card spacing rules (apply inline, NOT in StyleSheet)
+  // Card spacing (phone changes)
   const cardPadding = isPhone ? 12 : 16;
   const cardMargin = isPhone ? 12 : 20;
 
@@ -213,9 +214,11 @@ export default function EnvironmentalMonitor() {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Multi-select for sensors and time ranges
   const [selectedSensors, setSelectedSensors] = useState<string[]>([SENSOR_DEFINITIONS[0].id]);
   const [selectedTimeRanges, setSelectedTimeRanges] = useState<string[]>(['24h']);
 
+  // Node search
   const [nodeSearchQuery, setNodeSearchQuery] = useState<string>('');
   const [isNodeSearchFocused, setIsNodeSearchFocused] = useState<boolean>(false);
 
@@ -225,6 +228,7 @@ export default function EnvironmentalMonitor() {
   useEffect(() => {
     loadConfig();
     loadThemePreference();
+    // Only fetch nodes after token is loaded
     if (isTokenLoaded) {
       fetchNodes();
     }
@@ -242,7 +246,7 @@ export default function EnvironmentalMonitor() {
     if (selectedNode && isTokenLoaded) {
       fetchSensorHistory();
     }
-  }, [selectedTimeRanges, isTokenLoaded]);
+  }, [selectedTimeRanges, selectedNode, isTokenLoaded]);
 
   // ============================================================================
   // AUTH & CONFIG
@@ -286,7 +290,6 @@ export default function EnvironmentalMonitor() {
       setError(null);
 
       const response = await authenticatedFetch(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.NODES}`);
-
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
       const data = await response.json();
@@ -331,6 +334,8 @@ export default function EnvironmentalMonitor() {
   };
 
   const fetchCurrentSensorData = async (): Promise<void> => {
+    if (!selectedNode) return;
+
     const url = `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.CURRENT_SENSORS}?nodeId=${selectedNode}`;
     const response = await authenticatedFetch(url);
 
@@ -338,29 +343,39 @@ export default function EnvironmentalMonitor() {
       setSensorData({});
       return;
     }
-
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
     const data = await response.json();
 
     const processedData: SensorData = {};
+
     SENSOR_DEFINITIONS.forEach((sensor: SensorDefinition) => {
       if (Array.isArray(sensor.apiKey)) {
+        // Combined sensor
         const values = sensor.apiKey
           .map(key => data[key])
           .filter(v => v !== undefined && v !== null)
           .map(v => parseFloat(v));
 
         if (values.length > 0) {
-          if (sensor.aggregate === 'average') {
-            processedData[sensor.id] = values.reduce((a, b) => a + b, 0) / values.length;
-          } else if (sensor.aggregate === 'sum') {
-            processedData[sensor.id] = values.reduce((a, b) => a + b, 0);
-          }
+          const aggregatedValue =
+            sensor.aggregate === 'sum'
+              ? values.reduce((a, b) => a + b, 0)
+              : values.reduce((a, b) => a + b, 0) / values.length;
+
+          processedData[sensor.id] = aggregatedValue;
         }
       } else {
-        const value = data[sensor.apiKey];
-        if (value !== undefined && value !== null) processedData[sensor.id] = parseFloat(value);
+        // Single sensor
+        let raw = data[sensor.apiKey];
+        if (raw === undefined || raw === null) return;
+
+        // Friends' fix: pressure conversion to kPa
+        if (sensor.apiKey === 'pressure') {
+          raw = Number(raw) / 1000;
+        }
+
+        processedData[sensor.id] = parseFloat(raw);
       }
     });
 
@@ -415,21 +430,27 @@ export default function EnvironmentalMonitor() {
 
             if (sensorValues.length > 0) {
               const aggregatedValue =
-                sensor.aggregate === 'average'
-                  ? sensorValues.reduce((a, b) => a + b, 0) / sensorValues.length
-                  : sensorValues.reduce((a, b) => a + b, 0);
+                sensor.aggregate === 'sum'
+                  ? sensorValues.reduce((a, b) => a + b, 0)
+                  : sensorValues.reduce((a, b) => a + b, 0) / sensorValues.length;
 
               values.push(parseFloat(aggregatedValue.toFixed(sensor.decimalPlaces)));
             } else {
               values.push(null);
             }
           } else {
-            const value = reading[sensor.apiKey];
-            if (value !== undefined && value !== null) {
-              values.push(parseFloat(parseFloat(value).toFixed(sensor.decimalPlaces)));
-            } else {
+            let raw = reading[sensor.apiKey];
+            if (raw === undefined || raw === null) {
               values.push(null);
+              return;
             }
+
+            // Keep history consistent with current: pressure -> kPa
+            if (sensor.apiKey === 'pressure') {
+              raw = Number(raw) / 1000;
+            }
+
+            values.push(parseFloat(Number(raw).toFixed(sensor.decimalPlaces)));
           }
         });
 
@@ -1045,7 +1066,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   errorText: { color: '#DC2626', fontSize: 14, marginTop: 8, textAlign: 'center' },
-  retryButton: { marginTop: 12, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: '#DC2626', borderRadius: 8 },
+  retryButton: {
+    marginTop: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    backgroundColor: '#DC2626',
+    borderRadius: 8,
+  },
   retryButtonText: { color: '#FFFFFF', fontWeight: '600' },
 
   footer: { padding: 16, borderTopWidth: 1, marginBottom: 20 },
