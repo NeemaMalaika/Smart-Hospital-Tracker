@@ -146,7 +146,6 @@ const SENSOR_DEFINITIONS: SensorDefinition[] = [
     icon: 'sunny',
     color: '#FBBF24',
     apiKey: 'light',
-    aggregate: 'average',
     thresholds: { min: 0, max: 1000, critical: 2000 },
     decimalPlaces: 0,
   },
@@ -207,7 +206,7 @@ export default function EnvironmentalMonitor() {
     console.log('📊 Dashboard mounted - auth already checked by _layout.tsx');
     loadConfig();
     loadThemePreference();
-    // ✅ CHANGED: Only fetch nodes after token is loaded
+    // Only fetch nodes after token is loaded
     if (isTokenLoaded) {
       fetchNodes();
     }
