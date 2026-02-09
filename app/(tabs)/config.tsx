@@ -13,8 +13,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import ApiService from '../../services/api';
 import { useAuthenticatedAPI } from '../../hooks/useAuthenticatedAPI';
+import ApiService from '../../services/api';
 
 const API_BASE_URL = 'https://backend.smartenvironment.tech/api/v1';
 const API_ENDPOINTS = {
@@ -92,7 +92,7 @@ export default function ConfigScreen() {
       try {
         const savedTheme = await AsyncStorage.getItem('isDarkMode');
         if (savedTheme !== null) setIsDarkMode(savedTheme === 'true');
-      } catch {}
+      } catch { }
     })();
   }, []);
 
@@ -101,7 +101,7 @@ export default function ConfigScreen() {
     setIsDarkMode(newMode);
     try {
       await AsyncStorage.setItem('isDarkMode', String(newMode));
-    } catch {}
+    } catch { }
   };
 
   // Fetch nodes
@@ -120,9 +120,19 @@ export default function ConfigScreen() {
       }
 
       const data = await res.json();
-      const list: NodeSummary[] = Array.isArray(data)
+      console.log(data);
+      const rawList: NodeSummary[] = Array.isArray(data)
         ? data
         : data.nodes || data.data || [];
+
+      const list: NodeSummary[] = rawList.map((node: any) => ({
+        id: node.id,
+        nodeId: node.nodeId,
+        uuid: node.uuid,
+        friendlyName: node.friendlyName,
+        lastHeartbeat: node.lastHeartbeat,
+        battery: node.alertMetadata?.battery === -1 ? null : node.alertMetadata?.battery,
+      }));
 
       setNodes(list);
 
@@ -281,7 +291,7 @@ export default function ConfigScreen() {
       fields: [
         { key: 'mqtt_server', label: 'MQTT Server' },
         { key: 'mqtt_port', label: 'MQTT Port', keyboard: 'numeric' },
-       // { key: 'mqtt_client_id', label: 'MQTT Client ID' },
+        // { key: 'mqtt_client_id', label: 'MQTT Client ID' },
         { key: 'mqtt_username', label: 'MQTT Username' },
         { key: 'mqtt_password', label: 'MQTT Password', secure: true },
       ],
@@ -314,7 +324,7 @@ export default function ConfigScreen() {
         </TouchableOpacity>
 
         {/* LOGOUT BUTTON */}
-        <TouchableOpacity 
+        <TouchableOpacity
           onPress={() => {
             Alert.alert(
               'Logout',
@@ -331,7 +341,7 @@ export default function ConfigScreen() {
                 },
               ]
             );
-          }} 
+          }}
           style={styles.iconButton}
         >
           <Ionicons name="log-out-outline" size={22} color={isDarkMode ? '#F87171' : '#DC2626'} />
