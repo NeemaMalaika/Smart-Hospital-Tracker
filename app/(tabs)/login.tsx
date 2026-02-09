@@ -1,22 +1,21 @@
+import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
+  ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Alert,
-  ActivityIndicator,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import ApiService from '../../services/api';
-import CryptoJS from 'crypto-js';
 import Toast from '../../components/toast';
+import ApiService from '../../services/api';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -140,9 +139,9 @@ export default function LoginScreen() {
         </View>
 
         {/* Page Title */}
-        <Text style={styles.title}>Secure Access</Text>
+        <Text style={styles.title}>Admin Access</Text>
         <Text style={styles.subtitle}>
-          Enter your credentials to access the monitoring system
+          Enter your credentials below to login
         </Text>
 
         {/* Login Form */}
@@ -214,7 +213,7 @@ export default function LoginScreen() {
         <View style={styles.securityNotice}>
           <Ionicons name="shield-checkmark" size={16} color="#6B7280" />
           <Text style={styles.securityText}>
-            Secure authentication with 24-hour session
+            Forgotten your credentials? Please contact the system administrator
           </Text>
         </View>
       </ScrollView>
