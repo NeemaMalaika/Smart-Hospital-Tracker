@@ -10,8 +10,13 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+//  Import the hook
+import { useAuthenticatedAPI } from '../../hooks/useAuthenticatedAPI';
 
 const HospitalFloorPlan = () => {
+  //  Use the authentication hook
+  const { isTokenLoaded, authenticatedFetch } = useAuthenticatedAPI();
+  
   // ============================================================================
   // STATE MANAGEMENT
   // ============================================================================
@@ -31,12 +36,8 @@ const HospitalFloorPlan = () => {
   // API CONFIGURATION
   // ============================================================================
   const API_BASE_URL = 'https://backend.smartenvironment.tech/api/v1';
-  const API_KEY = '49643a60-0aff-4a88-8e65-30ea428df8ee';
   
-  const getHeaders = () => ({
-    'Content-Type': 'application/json',
-    'API-KEY': API_KEY,
-  });
+  // ❌ REMOVED: Old API_KEY and getHeaders function - now using the hook
 
   // ============================================================================
   // HOSPITAL ROOM CONFIGURATION
@@ -90,22 +91,25 @@ const HospitalFloorPlan = () => {
   // FETCH DATA ON MOUNT
   // ============================================================================
   useEffect(() => {
-    fetchNodes();
-  }, []);
+    //  Only fetch nodes after token is loaded
+    if (isTokenLoaded) {
+      fetchNodes();
+    }
+  }, [isTokenLoaded]); //Added dependency
 
   useEffect(() => {
-    if (nodes.length > 0) {
+    if (nodes.length > 0 && isTokenLoaded) { //  Added isTokenLoaded check
       fetchAllCurrentLocations();
       const interval = setInterval(fetchAllCurrentLocations, 5000);
       return () => clearInterval(interval);
     }
-  }, [nodes]);
+  }, [nodes, isTokenLoaded]); // Added isTokenLoaded dependency
 
   useEffect(() => {
-    if (selectedNode && viewMode === 'history') {
+    if (selectedNode && viewMode === 'history' && isTokenLoaded) { // Added isTokenLoaded check
       fetchLocationHistory(selectedNode);
     }
-  }, [selectedNode, viewMode]);
+  }, [selectedNode, viewMode, isTokenLoaded]); //Added isTokenLoaded dependency
 
   // ============================================================================
   // API FUNCTIONS
@@ -113,13 +117,17 @@ const HospitalFloorPlan = () => {
   
   const fetchNodes = async () => {
     try {
+      //  Check if token is loaded
+      if (!isTokenLoaded) {
+        console.log('⏳ Waiting for auth token...');
+        return;
+      }
+
       setIsLoading(true);
       setError(null);
 
-      const response = await fetch(`${API_BASE_URL}/node/list`, {
-        method: 'GET',
-        headers: getHeaders(),
-      });
+      //  Use authenticatedFetch from hook
+      const response = await authenticatedFetch(`${API_BASE_URL}/node/list`);
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -146,170 +154,177 @@ const HospitalFloorPlan = () => {
   };
 
   const fetchAllCurrentLocations = async () => {
-  console.log('===== FETCH ALL CURRENT LOCATIONS =====');
-  console.log('Number of nodes to fetch:', nodes.length);
-  console.log('Nodes:', nodes);
-  
-  try {
-    const locations = {};
+    console.log('===== FETCH ALL CURRENT LOCATIONS =====');
+    console.log('Number of nodes to fetch:', nodes.length);
+    console.log('Nodes:', nodes);
     
-    await Promise.all(
-      nodes.map(async (node) => {
-        const nodeId = node.id || node.nodeId || node.uuid;
-        const url = `${API_BASE_URL}/location/current?nodeId=${nodeId}`;
-        
-        console.log(`🔍 Fetching location for node: ${nodeId}`);
-        console.log(`📍 URL: ${url}`);
-        
-        try {
-          const response = await fetch(url, {
-            method: 'GET',
-            headers: getHeaders(),
-          });
-
-          console.log(`📊 Response status for ${nodeId}:`, response.status);
-
-          // Handle 204 No Content - no location data available yet
-          if (response.status === 204) {
-            console.log(`⚠️ No location data available for ${nodeId} (204)`);
-            return; // Skip this node
-          }
-
-          if (response.ok) {
-            const data = await response.json();
-            console.log(`✅ RAW RESPONSE DATA for ${nodeId}:`, JSON.stringify(data, null, 2));
-            
-            const oldLocation = currentLocations[nodeId]?.location;
-            const newLocation = data.location; 
-            
-            console.log(`📌 Old location: "${oldLocation}", New location: "${newLocation}"`);
-            
-            if (oldLocation && newLocation && oldLocation !== newLocation) {
-              console.log(`🔄 Location changed! ${oldLocation} → ${newLocation}`);
-              
-              // Trigger animation
-              setAnimatingNodes(prev => ({
-                ...prev,
-                [nodeId]: {
-                  fromRoom: oldLocation,
-                  toRoom: newLocation,
-                  startTime: Date.now(),
-                }
-              }));
-
-              // Clear animation after it completes
-              setTimeout(() => {
-                setAnimatingNodes(prev => {
-                  const updated = { ...prev };
-                  delete updated[nodeId];
-                  return updated;
-                });
-              }, 1000);
-
-              setRoomTransition({
-                nodeId,
-                fromRoom: oldLocation,
-                toRoom: newLocation,
-                timestamp: new Date(),
-              });
-              setTimeout(() => setRoomTransition(null), 2000);
-            }
-            
-            locations[nodeId] = {
-              location: newLocation,
-              roomName: newLocation,
-              timestamp: new Date(data.timestamp || Date.now()),
-              active: true,
-              rssi: data.rssi || data.wifi_rssi || -50,
-            };
-            
-            console.log(`💾 Stored location for ${nodeId}:`, locations[nodeId]);
-          } else {
-            const errorText = await response.text();
-            console.error(`❌ Error response for ${nodeId}:`, response.status, errorText);
-          }
-        } catch (err) {
-          console.error(`❌ Error fetching location for ${nodeId}:`, err);
-        }
-      })
-    );
-    
-    console.log('📦 Final locations object:', locations);
-    console.log('📊 Total locations stored:', Object.keys(locations).length);
-    setCurrentLocations(locations);
-  } catch (error) {
-    console.error('❌ Error fetching current locations:', error);
-  }
-  console.log('=======================================');
-};
-
-  const fetchLocationHistory = async (nodeId) => {
-  try {
-    const response = await fetch(
-      `${API_BASE_URL}/location/history?nodeId=${nodeId}`,
-      {
-        method: 'GET',
-        headers: getHeaders(),
-      }
-    );
-
-    console.log('📜 History response status:', response.status);
-
-    // Handle 204 No Content - no history data available yet
-    if (response.status === 204) {
-      console.log('⚠️ No location history available (204)');
-      setHistoryData([]);
+    // Check if token is loaded
+    if (!isTokenLoaded) {
+      console.log('⏳ Waiting for auth token...');
       return;
     }
+    
+    try {
+      const locations = {};
+      
+      await Promise.all(
+        nodes.map(async (node) => {
+          const nodeId = node.id || node.nodeId || node.uuid;
+          const url = `${API_BASE_URL}/location/current?nodeId=${nodeId}`;
+          
+          console.log(`🔍 Fetching location for node: ${nodeId}`);
+          console.log(`📍 URL: ${url}`);
+          
+          try {
+            // Use authenticatedFetch from hook
+            const response = await authenticatedFetch(url);
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+            console.log(`📊 Response status for ${nodeId}:`, response.status);
+
+            // Handle 204 No Content - no location data available yet
+            if (response.status === 204) {
+              console.log(`⚠️ No location data available for ${nodeId} (204)`);
+              return; // Skip this node
+            }
+
+            if (response.ok) {
+              const data = await response.json();
+              console.log(`✅ RAW RESPONSE DATA for ${nodeId}:`, JSON.stringify(data, null, 2));
+              
+              const oldLocation = currentLocations[nodeId]?.location;
+              const newLocation = data.location; 
+              
+              console.log(`Old location: "${oldLocation}", New location: "${newLocation}"`);
+              
+              if (oldLocation && newLocation && oldLocation !== newLocation) {
+                console.log(`🔄 Location changed! ${oldLocation} → ${newLocation}`);
+                
+                // Trigger animation
+                setAnimatingNodes(prev => ({
+                  ...prev,
+                  [nodeId]: {
+                    fromRoom: oldLocation,
+                    toRoom: newLocation,
+                    startTime: Date.now(),
+                  }
+                }));
+
+                // Clear animation after it completes
+                setTimeout(() => {
+                  setAnimatingNodes(prev => {
+                    const updated = { ...prev };
+                    delete updated[nodeId];
+                    return updated;
+                  });
+                }, 1000);
+
+                setRoomTransition({
+                  nodeId,
+                  fromRoom: oldLocation,
+                  toRoom: newLocation,
+                  timestamp: new Date(),
+                });
+                setTimeout(() => setRoomTransition(null), 2000);
+              }
+              
+              locations[nodeId] = {
+                location: newLocation,
+                roomName: newLocation,
+                timestamp: new Date(data.timestamp || Date.now()),
+                active: true,
+                rssi: data.rssi || data.wifi_rssi || -50,
+              };
+              
+              console.log(`💾 Stored location for ${nodeId}:`, locations[nodeId]);
+            } else {
+              const errorText = await response.text();
+              console.error(`❌ Error response for ${nodeId}:`, response.status, errorText);
+            }
+          } catch (err) {
+            console.error(`❌ Error fetching location for ${nodeId}:`, err);
+          }
+        })
+      );
+      
+      console.log('📦 Final locations object:', locations);
+      console.log('📊 Total locations stored:', Object.keys(locations).length);
+      setCurrentLocations(locations);
+    } catch (error) {
+      console.error('❌ Error fetching current locations:', error);
     }
+    console.log('=======================================');
+  };
 
-    const data = await response.json();
-    console.log('📜 History data received:', data);
-    
-    // Backend wraps history in { "history": [...] }
-    const historyArray = data.history || [];
-    console.log('📜 History array:', historyArray);
-
-    // Process duplicates
-    const processedHistory = [];
-    let lastLocation = null;
-
-    historyArray.forEach(entry => {
-      const currentLocation = entry.location;
-
-      if (currentLocation !== lastLocation) {
-        processedHistory.push({
-          timestamp: new Date(entry.timestamp),
-          location: currentLocation,
-          roomName: currentLocation,
-        });
+  const fetchLocationHistory = async (nodeId) => {
+    try {
+      // Check if token is loaded
+      if (!isTokenLoaded) {
+        console.log('⏳ Waiting for auth token...');
+        return;
       }
-      lastLocation = currentLocation;
-    });
-    
-    console.log('📜 Processed history:', processedHistory);
-    setHistoryData(processedHistory);
-  } catch (error) {
-    console.error('Error fetching location history:', error);
-    setHistoryData([]);
-  }
-};
+
+      //Use authenticatedFetch from hook
+      const response = await authenticatedFetch(
+        `${API_BASE_URL}/location/history?nodeId=${nodeId}`
+      );
+
+      console.log('📜 History response status:', response.status);
+
+      // Handle 204 No Content - no history data available yet
+      if (response.status === 204) {
+        console.log('⚠️ No location history available (204)');
+        setHistoryData([]);
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('📜 History data received:', data);
+      
+      // Backend wraps history in { "history": [...] }
+      const historyArray = data.history || [];
+      console.log('📜 History array:', historyArray);
+
+      // Process duplicates
+      const processedHistory = [];
+      let lastLocation = null;
+
+      historyArray.forEach(entry => {
+        const currentLocation = entry.location;
+
+        if (currentLocation !== lastLocation) {
+          processedHistory.push({
+            timestamp: new Date(entry.timestamp),
+            location: currentLocation,
+            roomName: currentLocation,
+          });
+        }
+        lastLocation = currentLocation;
+      });
+      
+      console.log('📜 Processed history:', processedHistory);
+      setHistoryData(processedHistory);
+    } catch (error) {
+      console.error('Error fetching location history:', error);
+      setHistoryData([]);
+    }
+  };
 
   // HELPER FUNCTIONS
   
   const getNodesInRoom = (roomId) => {
-  return nodes.filter(node => {
-    const nodeId = node.id || node.nodeId || node.uuid;
-    const locationData = currentLocations[nodeId];
-    
-    // Match against room name from the rooms array
-    const room = rooms.find(r => r.id === roomId);
-    return locationData && room && locationData.location === room.name;
-  });
-};
+    return nodes.filter(node => {
+      const nodeId = node.id || node.nodeId || node.uuid;
+      const locationData = currentLocations[nodeId];
+      
+      // Match against room name from the rooms array
+      const room = rooms.find(r => r.id === roomId);
+      return locationData && room && locationData.location === room.name;
+    });
+  };
 
   const isRoomActive = (roomId) => {
     return getNodesInRoom(roomId).length > 0;

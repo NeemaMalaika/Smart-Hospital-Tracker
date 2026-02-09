@@ -2,12 +2,12 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Dimensions, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Dimensions, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { LineChart } from 'react-native-chart-kit';
+import { useAuthenticatedAPI } from '../../hooks/useAuthenticatedAPI';
 
 // ============================================================================
 // TYPE DEFINITIONS
-// These interfaces define the shape of our data throughout the application
 // ============================================================================
 
 interface APIConfig {
@@ -26,16 +26,16 @@ interface SensorThresholds {
   critical: number;
 }
 
-// Defines what each sensor needs (name, unit, icon, etc.)
 interface SensorDefinition {
   id: string;
   name: string;
   unit: string;
   icon: keyof typeof Ionicons.glyphMap;
   color: string;
-  apiKey: string;  // The key used in API responses
+  apiKey: string | string[];  // Can be array for combined sensors
   thresholds: SensorThresholds;
   decimalPlaces: number;
+  aggregate?: 'average' | 'sum';  // How to combine multiple values
 }
 
 interface Config {
@@ -44,7 +44,6 @@ interface Config {
   entityPlural: string;
 }
 
-// Represents a monitoring node/device
 interface Node {
   id?: string;
   nodeId?: string;
@@ -58,7 +57,6 @@ interface SensorData {
   [key: string]: number;
 }
 
-// Structure for chart data (labels and values)
 interface HistoryDataset {
   labels: string[];
   datasets: [{ data: number[] }];
@@ -68,14 +66,12 @@ interface HistoryData {
   [key: string]: HistoryDataset;
 }
 
-// Status badge configuration (color, label, background)
 interface Status {
   label: string;
   color: string;
   bgColor: string;
 }
 
-// Time range options for historical graphs
 interface TimeRange {
   id: string;
   label: string;
@@ -84,7 +80,6 @@ interface TimeRange {
 
 // ============================================================================
 // API CONFIGURATION
-// Connection details for the backend server
 // ============================================================================
 const API_CONFIG: APIConfig = {
   BASE_URL: 'https://backend.smartenvironment.tech/api/v1',
@@ -93,29 +88,25 @@ const API_CONFIG: APIConfig = {
     CURRENT_SENSORS: '/sensors/current',
     SENSOR_HISTORY: '/sensors/history',
   },
-  POLLING_INTERVAL: 30000, // Refresh data every 30 seconds
+  POLLING_INTERVAL: 30000,
 };
 
 // ============================================================================
-// TIME RANGES FOR HISTORICAL DATA
-// User can select how far back they want to see data
+// TIME RANGES
 // ============================================================================
 const TIME_RANGES: TimeRange[] = [
-  { id: '5m', label: '5m', minutes: 5 },
-  { id: '15m', label: '15m', minutes: 15 },
-  { id: '30m', label: '30m', minutes: 30 },
-  { id: '1h', label: '1h', minutes: 60 },
-  { id: '3h', label: '3h', minutes: 180 },
-  { id: '12h', label: '12h', minutes: 720 },
-  { id: '24h', label: '24h', minutes: 1440 },
-  { id: '3d', label: '3d', minutes: 4320 },
-  { id: '7d', label: '7d', minutes: 10080 },
-  { id: '30d', label: '30d', minutes: 43200 },
+  { id: '5m', label: '5 min', minutes: 5 },
+  { id: '15m', label: '15 min', minutes: 15 },
+  { id: '1h', label: '1 hour', minutes: 60 },
+  { id: '3h', label: '3 hours', minutes: 180 },
+  { id: '6h', label: '6 hours', minutes: 360 },
+  { id: '24h', label: '24 hours', minutes: 1440 },
+  { id: '7d', label: '7 days', minutes: 10080 },
+  { id: '30d', label: '30 days', minutes: 43200 },
 ];
 
 // ============================================================================
-// SENSOR CONFIGURATION
-// Defines all the sensors we're monitoring - easy to add more!
+// SENSOR CONFIGURATION - Combined Light Sensor
 // ============================================================================
 const SENSOR_DEFINITIONS: SensorDefinition[] = [
   {
@@ -149,42 +140,13 @@ const SENSOR_DEFINITIONS: SensorDefinition[] = [
     decimalPlaces: 0,
   },
   {
-    id: 'lightRed',
-    name: 'Light (Red)',
-    unit: 'lux',
-    icon: 'bulb',
-    color: '#DC2626',
-    apiKey: 'lightRed',
-    thresholds: { min: 0, max: 1000, critical: 2000 },
-    decimalPlaces: 0,
-  },
-  {
-    id: 'lightGreen',
-    name: 'Light (Green)',
-    unit: 'lux',
-    icon: 'bulb',
-    color: '#10B981',
-    apiKey: 'lightGreen',
-    thresholds: { min: 0, max: 1000, critical: 2000 },
-    decimalPlaces: 0,
-  },
-  {
-    id: 'lightBlue',
-    name: 'Light (Blue)',
-    unit: 'lux',
-    icon: 'bulb',
-    color: '#3B82F6',
-    apiKey: 'lightBlue',
-    thresholds: { min: 0, max: 1000, critical: 2000 },
-    decimalPlaces: 0,
-  },
-  {
-    id: 'lightClear',
-    name: 'Light (Clear)',
+    id: 'light',
+    name: 'Light Level',
     unit: 'lux',
     icon: 'sunny',
     color: '#FBBF24',
-    apiKey: 'lightClear',
+    apiKey: ['lightRed', 'lightGreen', 'lightBlue', 'lightClear'],  // Combined
+    aggregate: 'average',
     thresholds: { min: 0, max: 1000, critical: 2000 },
     decimalPlaces: 0,
   },
@@ -200,9 +162,8 @@ const SENSOR_DEFINITIONS: SensorDefinition[] = [
   },
 ];
 
-// Default system configuration
 const DEFAULT_CONFIG: Config = {
-  systemName: 'Environmental Monitoring System',
+  systemName: 'Environmental Monitor',
   entityName: 'Node',
   entityPlural: 'Nodes',
 };
@@ -213,78 +174,63 @@ const DEFAULT_CONFIG: Config = {
 export default function EnvironmentalMonitor() {
   const router = useRouter();
   
+  // authentication hook
+  const { authToken, isTokenLoaded, getAuthHeaders, authenticatedFetch } = useAuthenticatedAPI();
+  
   // ============================================================================
   // STATE MANAGEMENT
-  // All the data our app needs to keep track of
   // ============================================================================
   
   const [config, setConfig] = useState<Config>(DEFAULT_CONFIG);
-  const [nodes, setNodes] = useState<Node[]>([]);  // List of all available nodes
-  const [selectedNode, setSelectedNode] = useState<string | null>(null);  // Which node we're viewing
-  const [sensorData, setSensorData] = useState<SensorData>({});  // Current sensor readings
-  const [historyData, setHistoryData] = useState<HistoryData>({});  // Historical data for charts
-  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());  // When we last fetched data
-  const [isDarkMode, setIsDarkMode] = useState<boolean>(false);  // Light or dark theme
-  const [isLoading, setIsLoading] = useState<boolean>(true);  // Are we fetching data?
-  const [error, setError] = useState<string | null>(null);  // Any error messages
+  const [nodes, setNodes] = useState<Node[]>([]);
+  const [selectedNode, setSelectedNode] = useState<string | null>(null);
+  const [sensorData, setSensorData] = useState<SensorData>({});
+  const [historyData, setHistoryData] = useState<HistoryData>({});
+  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
   
-  // Sensor dropdown state
-  const [selectedSensor, setSelectedSensor] = useState<string>(SENSOR_DEFINITIONS[0].id);
-  const [isDropdownOpen, setIsDropdownOpen] = useState<boolean>(false);
+  // Multi-select for sensors and time ranges
+  const [selectedSensors, setSelectedSensors] = useState<string[]>([SENSOR_DEFINITIONS[0].id]);
+  const [selectedTimeRanges, setSelectedTimeRanges] = useState<string[]>(['24h']);
   
-  // Time range selector state
-  const [selectedTimeRange, setSelectedTimeRange] = useState<string>('24h');  // Default to 24 hours
+  // Node search
+  const [nodeSearchQuery, setNodeSearchQuery] = useState<string>('');
+  const [isNodeSearchFocused, setIsNodeSearchFocused] = useState<boolean>(false);
 
   // ============================================================================
   // LIFECYCLE HOOKS
-  // These run at specific times in the component's life
   // ============================================================================
   
-  // Run once when component first loads
   useEffect(() => {
-    checkAuth();  // Make sure user is logged in
-    loadConfig();  // Load saved settings
-    loadThemePreference();  // Load dark/light mode preference
-    fetchNodes();  // Get the list of nodes from the server
-  }, []);
-
-  // Run whenever the selected node changes
-  useEffect(() => {
-    if (selectedNode) {
-      fetchAllData();  // Fetch data for the new node
-      // Set up automatic refresh every 30 seconds
-      const interval = setInterval(fetchAllData, API_CONFIG.POLLING_INTERVAL);
-      return () => clearInterval(interval);  // Clean up when component unmounts
+    console.log('📊 Dashboard mounted - auth already checked by _layout.tsx');
+    loadConfig();
+    loadThemePreference();
+    // ✅ CHANGED: Only fetch nodes after token is loaded
+    if (isTokenLoaded) {
+      fetchNodes();
     }
-  }, [selectedNode]);
+  }, [isTokenLoaded]); // Added dependency
 
-  // Refetch history when time range changes
   useEffect(() => {
-    if (selectedNode) {
+    if (selectedNode && isTokenLoaded) { //Added isTokenLoaded check
+      fetchAllData();
+      const interval = setInterval(fetchAllData, API_CONFIG.POLLING_INTERVAL);
+      return () => clearInterval(interval);
+    }
+  }, [selectedNode, isTokenLoaded]); //Added isTokenLoaded dependency
+
+  useEffect(() => {
+    if (selectedNode && isTokenLoaded) { //  Added isTokenLoaded check
       fetchSensorHistory();
     }
-  }, [selectedTimeRange]);
+  }, [selectedTimeRanges, isTokenLoaded]); //  Added isTokenLoaded dependency
 
   // ============================================================================
   // AUTHENTICATION & CONFIGURATION
   // ============================================================================
-  
-  // Check if user is authenticated, redirect to login if not
-  const checkAuth = async (): Promise<void> => {
-    try {
-      const isAuth = await AsyncStorage.getItem('isAuthenticated');
-      
-      if (!isAuth) {
-        router.replace('/login');
-      }
-    } catch (error) {
-      console.error('Auth check error:', error);
-      Alert.alert('Error', 'Authentication failed. Please log in again.');
-      router.replace('/login');
-    }
-  };
 
-  // Load saved system configuration from device storage
   const loadConfig = async (): Promise<void> => {
     try {
       const savedConfig = await AsyncStorage.getItem('systemConfig');
@@ -296,7 +242,6 @@ export default function EnvironmentalMonitor() {
     }
   };
 
-  // Load the user's preferred theme (dark or light mode)
   const loadThemePreference = async (): Promise<void> => {
     try {
       const savedTheme = await AsyncStorage.getItem('isDarkMode');
@@ -308,7 +253,6 @@ export default function EnvironmentalMonitor() {
     }
   };
 
-  // Toggle between dark and light mode
   const toggleDarkMode = async (): Promise<void> => {
     const newMode = !isDarkMode;
     setIsDarkMode(newMode);
@@ -321,58 +265,39 @@ export default function EnvironmentalMonitor() {
 
   // ============================================================================
   // API INTEGRATION
-  // Functions that talk to the backend server
   // ============================================================================
-  
-  // Standard headers for API requests (includes API key)
-  const getAuthHeaders = () => ({
-    'Content-Type': 'application/json',
-    'API-KEY': '49643a60-0aff-4a88-8e65-30ea428df8ee',
-  });
 
-  // Fetch the list of available nodes from the server
   const fetchNodes = async (): Promise<void> => {
     try {
+      //  Check if token is loaded
+      if (!isTokenLoaded) {
+        console.log('⏳ Waiting for auth token...');
+        return;
+      }
+
       setIsLoading(true);
       setError(null);
 
-      console.log('Fetching nodes from:', `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.NODES}`);
-
-      const response = await fetch(
-        `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.NODES}`,
-        {
-          method: 'GET',
-          headers: getAuthHeaders(),
-        }
+      //Use authenticatedFetch from hook
+      const response = await authenticatedFetch(
+        `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.NODES}`
       );
 
-      console.log('Nodes response status:', response.status);
-
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Nodes API error:', errorText);
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
       const data = await response.json();
-      console.log('Nodes data received:', data);
-      
-      // Handle different possible response formats from the API
       const nodesList: Node[] = Array.isArray(data) ? data : (data.nodes || data.data || []);
-      
-      console.log('Processed nodes list:', nodesList);
       
       if (nodesList.length === 0) {
         setError('No nodes available');
         return;
       }
       
-      // We only want ROOM_NODE types for environmental sensors
       const roomNodes = nodesList.filter((node: Node) => node.type === 'ROOM_NODE');
-
       setNodes(roomNodes);
 
-      // Automatically select the first node if none is selected
       if (roomNodes.length > 0 && !selectedNode) {
         const firstNodeId = roomNodes[0].id || roomNodes[0].nodeId || roomNodes[0].uuid;
         setSelectedNode(firstNodeId || null);
@@ -382,28 +307,18 @@ export default function EnvironmentalMonitor() {
       console.error('Error fetching nodes:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       setError(`Failed to fetch nodes: ${errorMessage}`);
-      Alert.alert(
-        'Connection Error',
-        `Unable to fetch node list: ${errorMessage}`,
-        [{ text: 'OK' }]
-      );
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Fetch both current sensor data and historical data
   const fetchAllData = async (): Promise<void> => {
-    if (!selectedNode) {
-      console.warn('fetchAllData skipped: selectedNode is null');
-      return;
-    }
+    if (!selectedNode || !isTokenLoaded) return; //  Added isTokenLoaded check
 
     try {
       setIsLoading(true);
       setError(null);
 
-      // Fetch both current and historical data in parallel
       await Promise.all([
         fetchCurrentSensorData(),
         fetchSensorHistory(),
@@ -418,45 +333,49 @@ export default function EnvironmentalMonitor() {
     }
   };
 
-  // Fetch the current (latest) readings from all sensors
   const fetchCurrentSensorData = async (): Promise<void> => {
     try {
       const url = `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.CURRENT_SENSORS}?nodeId=${selectedNode}`;
-      console.log('Fetching current sensor data from:', url);
 
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: getAuthHeaders(),
-      });
+      // Use authenticatedFetch from hook
+      const response = await authenticatedFetch(url);
 
-      console.log('Current sensors response status:', response.status);
-
-      // 204 means "no content" - the node hasn't sent data yet
       if (response.status === 204) {
-        console.log('No current sensor data available (204)');
         setSensorData({});
         return;
       }
 
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Current sensors API error:', errorText);
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
       const data = await response.json();
-      console.log('Current sensor data received:', data);
       
-      // Convert API response to our internal format
       const processedData: SensorData = {};
       SENSOR_DEFINITIONS.forEach((sensor: SensorDefinition) => {
-        const value = data[sensor.apiKey];
-        if (value !== undefined && value !== null) {
-          processedData[sensor.id] = parseFloat(value);
+        if (Array.isArray(sensor.apiKey)) {
+          // Combined sensor - aggregate multiple values
+          const values = sensor.apiKey
+            .map(key => data[key])
+            .filter(v => v !== undefined && v !== null)
+            .map(v => parseFloat(v));
+          
+          if (values.length > 0) {
+            if (sensor.aggregate === 'average') {
+              processedData[sensor.id] = values.reduce((a, b) => a + b, 0) / values.length;
+            } else if (sensor.aggregate === 'sum') {
+              processedData[sensor.id] = values.reduce((a, b) => a + b, 0);
+            }
+          }
+        } else {
+          // Single sensor
+          const value = data[sensor.apiKey];
+          if (value !== undefined && value !== null) {
+            processedData[sensor.id] = parseFloat(value);
+          }
         }
       });
       
-      console.log('Processed sensor data:', processedData);
       setSensorData(processedData);
       
     } catch (error) {
@@ -465,99 +384,91 @@ export default function EnvironmentalMonitor() {
     }
   };
 
-  // Fetch historical sensor data for graphs
   const fetchSensorHistory = async (): Promise<void> => {
     try {
-      // Get the selected time range
-      const timeRange = TIME_RANGES.find(tr => tr.id === selectedTimeRange);
-      if (!timeRange) return;
+      // Fetch history for all selected time ranges
+      const allHistoryData: HistoryData = {};
+      
+      for (const timeRangeId of selectedTimeRanges) {
+        const timeRange = TIME_RANGES.find(tr => tr.id === timeRangeId);
+        if (!timeRange) continue;
 
-      const url = `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.SENSOR_HISTORY}?nodeId=${selectedNode}&minutes=${timeRange.minutes}`;
-      console.log('Fetching sensor history from:', url);
+        const url = `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.SENSOR_HISTORY}?nodeId=${selectedNode}&minutes=${timeRange.minutes}`;
 
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: getAuthHeaders(),
-      });
+        // Use authenticatedFetch from hook
+        const response = await authenticatedFetch(url);
 
-      console.log('Sensor history response status:', response.status);
+        if (response.status === 204) {
+          continue;
+        }
 
-      // 204 means no historical data available yet
-      if (response.status === 204) {
-        console.log('No sensor history available (204)');
-        // Set empty history for all sensors
-        const emptyHistory: HistoryData = {};
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const result = await response.json();
+        const historyArray: any[] = Array.isArray(result) ? result : (result.data || result.history || []);
+        
         SENSOR_DEFINITIONS.forEach((sensor: SensorDefinition) => {
-          emptyHistory[sensor.id] = {
-            labels: [],
-            datasets: [{ data: [0] }],
+          const labels: string[] = [];
+          const values: (number | null)[] = [];
+          
+          historyArray.forEach((reading: any, index: number) => {
+            const date = new Date(reading.timestamp || reading.time || reading.date);
+            
+            let timeLabel = '';
+            if (timeRange.minutes <= 60) {
+              timeLabel = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            } else if (timeRange.minutes <= 1440) {
+              const hour = date.getHours();
+              timeLabel = `${hour.toString().padStart(2, '0')}:00`;
+            } else {
+              timeLabel = date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+            }
+            
+            const showLabel = index % Math.max(1, Math.floor(historyArray.length / 8)) === 0;
+            labels.push(showLabel ? timeLabel : '');
+            
+            if (Array.isArray(sensor.apiKey)) {
+              // Combined sensor
+              const sensorValues = sensor.apiKey
+                .map(key => reading[key])
+                .filter(v => v !== undefined && v !== null)
+                .map(v => parseFloat(v));
+              
+              if (sensorValues.length > 0) {
+                let aggregatedValue;
+                if (sensor.aggregate === 'average') {
+                  aggregatedValue = sensorValues.reduce((a, b) => a + b, 0) / sensorValues.length;
+                } else {
+                  aggregatedValue = sensorValues.reduce((a, b) => a + b, 0);
+                }
+                values.push(parseFloat(aggregatedValue.toFixed(sensor.decimalPlaces)));
+              } else {
+                values.push(null);
+              }
+            } else {
+              // Single sensor
+              const value = reading[sensor.apiKey];
+              if (value !== undefined && value !== null) {
+                values.push(parseFloat(parseFloat(value).toFixed(sensor.decimalPlaces)));
+              } else {
+                values.push(null);
+              }
+            }
+          });
+          
+          const validValues = values.filter((v): v is number => v !== null);
+          const key = `${sensor.id}_${timeRangeId}`;
+          
+          allHistoryData[key] = {
+            labels,
+            datasets: [{ data: validValues.length > 0 ? validValues : [0] }],
           };
         });
-        setHistoryData(emptyHistory);
-        return;
       }
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Sensor history API error:', errorText);
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const result = await response.json();
-      console.log('Sensor history data received:', result);
       
-      // Handle different possible response formats
-      const historyArray: any[] = Array.isArray(result) ? result : (result.data || result.history || []);
-      
-      console.log('History array length:', historyArray.length);
-      
-      // Process history data for each sensor
-      const processedHistory: HistoryData = {};
-      
-      SENSOR_DEFINITIONS.forEach((sensor: SensorDefinition) => {
-        const labels: string[] = [];
-        const values: (number | null)[] = [];
-        
-        // Convert each reading into chart-friendly format
-        historyArray.forEach((reading: any, index: number) => {
-          const date = new Date(reading.timestamp || reading.time || reading.date);
-          
-          // Format the time label based on the time range
-          let timeLabel = '';
-          if (timeRange.minutes <= 60) {
-            // For short ranges (≤1h), show minutes
-            timeLabel = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-          } else if (timeRange.minutes <= 1440) {
-            // For medium ranges (≤24h), show hours
-            const hour = date.getHours();
-            timeLabel = `${hour.toString().padStart(2, '0')}:00`;
-          } else {
-            // For long ranges (>24h), show date
-            timeLabel = date.toLocaleDateString([], { month: 'short', day: 'numeric' });
-          }
-          
-          // Only show labels periodically to avoid clutter
-          const showLabel = index % Math.max(1, Math.floor(historyArray.length / 8)) === 0;
-          labels.push(showLabel ? timeLabel : '');
-          
-          const value = reading[sensor.apiKey];
-          if (value !== undefined && value !== null) {
-            values.push(parseFloat(parseFloat(value).toFixed(sensor.decimalPlaces)));
-          } else {
-            values.push(null);
-          }
-        });
-        
-        const validValues = values.filter((v): v is number => v !== null);
-        console.log(`${sensor.name} history: ${validValues.length} valid values`);
-        
-        processedHistory[sensor.id] = {
-          labels,
-          datasets: [{ data: validValues.length > 0 ? validValues : [0] }],
-        };
-      });
-      
-      setHistoryData(processedHistory);
+      setHistoryData(allHistoryData);
       
     } catch (error) {
       console.error('Error fetching sensor history:', error);
@@ -567,10 +478,8 @@ export default function EnvironmentalMonitor() {
 
   // ============================================================================
   // HELPER FUNCTIONS
-  // Utility functions for common tasks
   // ============================================================================
 
-  // Determine the status (Normal, High, Low, Critical) based on sensor value
   const getStatus = (value: number | null | undefined, sensor: SensorDefinition): Status => {
     if (value === null || value === undefined) {
       return {
@@ -613,7 +522,6 @@ export default function EnvironmentalMonitor() {
     };
   };
 
-  // Handle user logout
   const handleLogout = async (): Promise<void> => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
       { text: 'Cancel', style: 'cancel' },
@@ -628,197 +536,277 @@ export default function EnvironmentalMonitor() {
     ]);
   };
 
+  // Toggle sensor selection
+  const toggleSensor = (sensorId: string): void => {
+    setSelectedSensors(prev => {
+      if (prev.includes(sensorId)) {
+        // Don't allow deselecting if it's the last one
+        if (prev.length === 1) return prev;
+        return prev.filter(id => id !== sensorId);
+      } else {
+        return [...prev, sensorId];
+      }
+    });
+  };
+
+  // Toggle time range selection
+  const toggleTimeRange = (timeRangeId: string): void => {
+    setSelectedTimeRanges(prev => {
+      if (prev.includes(timeRangeId)) {
+        // Don't allow deselecting if it's the last one
+        if (prev.length === 1) return prev;
+        return prev.filter(id => id !== timeRangeId);
+      } else {
+        return [...prev, timeRangeId];
+      }
+    });
+  };
+
+  // Filter nodes based on search query
+  const filteredNodes = nodes.filter((node: Node) => {
+    const nodeName = (node.friendlyName || node.name || node.id || node.nodeId || node.uuid || '').toLowerCase();
+    return nodeName.includes(nodeSearchQuery.toLowerCase());
+  });
+
   // ============================================================================
   // RENDER HELPERS
-  // Variables and functions used in the UI
   // ============================================================================
   
   const selectedNodeData = nodes.find((n: Node) => (n.id || n.nodeId || n.uuid) === selectedNode);
   const selectedNodeName = selectedNodeData?.friendlyName || selectedNodeData?.name || selectedNode || 'Unknown Node';
   const screenWidth = Dimensions.get('window').width;
 
-  // Dynamic styles that change based on dark/light mode
   const dynamicStyles = {
     container: { ...styles.container, backgroundColor: isDarkMode ? '#111827' : '#F9FAFB' },
     header: { ...styles.header, backgroundColor: isDarkMode ? '#1F2937' : '#FFFFFF', borderBottomColor: isDarkMode ? '#374151' : '#E5E7EB' },
     headerTitle: { ...styles.headerTitle, color: isDarkMode ? '#F9FAFB' : '#111827' },
     headerSubtitle: { ...styles.headerSubtitle, color: isDarkMode ? '#9CA3AF' : '#6B7280' },
-    nodeSelector: { ...styles.nodeSelector, backgroundColor: isDarkMode ? '#1F2937' : '#FFFFFF', borderBottomColor: isDarkMode ? '#374151' : '#E5E7EB' },
+    section: { ...styles.section, backgroundColor: isDarkMode ? '#1F2937' : '#FFFFFF', borderBottomColor: isDarkMode ? '#374151' : '#E5E7EB' },
     sectionLabel: { ...styles.sectionLabel, color: isDarkMode ? '#D1D5DB' : '#374151' },
-    nodeButton: { ...styles.nodeButton, backgroundColor: isDarkMode ? '#374151' : '#FFFFFF', borderColor: isDarkMode ? '#4B5563' : '#D1D5DB' },
-    nodeButtonActive: { ...styles.nodeButtonActive, backgroundColor: isDarkMode ? '#1E3A8A' : '#EFF6FF', borderColor: isDarkMode ? '#3B82F6' : '#2563EB' },
-    nodeButtonText: { ...styles.nodeButtonText, color: isDarkMode ? '#9CA3AF' : '#6B7280' },
-    nodeButtonTextActive: { ...styles.nodeButtonTextActive, color: isDarkMode ? '#93C5FD' : '#2563EB' },
+    searchInput: { ...styles.searchInput, backgroundColor: isDarkMode ? '#374151' : '#F3F4F6', color: isDarkMode ? '#F9FAFB' : '#111827', borderColor: isDarkMode ? '#4B5563' : '#D1D5DB' },
+    nodeDropdown: { ...styles.nodeDropdown, backgroundColor: isDarkMode ? '#374151' : '#FFFFFF', borderColor: isDarkMode ? '#4B5563' : '#D1D5DB' },
+    nodeItem: { ...styles.nodeItem, borderBottomColor: isDarkMode ? '#4B5563' : '#E5E7EB' },
+    nodeItemText: { ...styles.nodeItemText, color: isDarkMode ? '#D1D5DB' : '#374151' },
+    nodeItemActive: { ...styles.nodeItemActive, backgroundColor: isDarkMode ? '#1E3A8A' : '#EFF6FF' },
+    chipButton: { ...styles.chipButton, backgroundColor: isDarkMode ? '#374151' : '#F3F4F6', borderColor: isDarkMode ? '#4B5563' : '#D1D5DB' },
+    chipButtonActive: { ...styles.chipButtonActive, backgroundColor: isDarkMode ? '#3B82F6' : '#2563EB', borderColor: isDarkMode ? '#3B82F6' : '#2563EB' },
+    chipButtonText: { ...styles.chipButtonText, color: isDarkMode ? '#9CA3AF' : '#6B7280' },
+    chipButtonTextActive: { ...styles.chipButtonTextActive, color: '#FFFFFF' },
     card: { ...styles.card, backgroundColor: isDarkMode ? '#1F2937' : '#FFFFFF', borderColor: isDarkMode ? '#374151' : '#E5E7EB' },
     cardTitle: { ...styles.cardTitle, color: isDarkMode ? '#F9FAFB' : '#111827' },
     currentValueLabel: { ...styles.currentValueLabel, color: isDarkMode ? '#9CA3AF' : '#6B7280' },
     currentValue: { ...styles.currentValue, color: isDarkMode ? '#F9FAFB' : '#111827' },
-    thresholdsTitle: { ...styles.thresholdsTitle, color: isDarkMode ? '#F9FAFB' : '#111827' },
-    thresholdLabel: { ...styles.thresholdLabel, color: isDarkMode ? '#9CA3AF' : '#6B7280' },
-    thresholdValue: { ...styles.thresholdValue, color: isDarkMode ? '#F9FAFB' : '#111827' },
     chartSubtitle: { ...styles.chartSubtitle, color: isDarkMode ? '#9CA3AF' : '#6B7280' },
     footer: { ...styles.footer, backgroundColor: isDarkMode ? '#1F2937' : '#FFFFFF', borderTopColor: isDarkMode ? '#374151' : '#E5E7EB' },
     footerText: { ...styles.footerText, color: isDarkMode ? '#9CA3AF' : '#6B7280' },
-    dropdownButton: { ...styles.dropdownButton, backgroundColor: isDarkMode ? '#374151' : '#FFFFFF', borderColor: isDarkMode ? '#4B5563' : '#D1D5DB' },
-    dropdownButtonText: { ...styles.dropdownButtonText, color: isDarkMode ? '#F9FAFB' : '#111827' },
-    dropdownMenu: { ...styles.dropdownMenu, backgroundColor: isDarkMode ? '#1F2937' : '#FFFFFF', borderColor: isDarkMode ? '#374151' : '#E5E7EB' },
-    dropdownItem: { ...styles.dropdownItem, borderBottomColor: isDarkMode ? '#374151' : '#E5E7EB' },
-    dropdownItemText: { ...styles.dropdownItemText, color: isDarkMode ? '#D1D5DB' : '#374151' },
-    timeRangeButton: { ...styles.timeRangeButton, backgroundColor: isDarkMode ? '#374151' : '#F3F4F6', borderColor: isDarkMode ? '#4B5563' : '#D1D5DB' },
-    timeRangeButtonActive: { ...styles.timeRangeButtonActive, backgroundColor: isDarkMode ? '#3B82F6' : '#2563EB' },
-    timeRangeButtonText: { ...styles.timeRangeButtonText, color: isDarkMode ? '#9CA3AF' : '#6B7280' },
-    timeRangeButtonTextActive: { ...styles.timeRangeButtonTextActive, color: '#FFFFFF' },
   };
 
   // ============================================================================
   // UI COMPONENTS
-  // Reusable pieces of the interface
   // ============================================================================
 
-  // Dropdown for selecting which sensor to view
-  const SensorDropdown: React.FC = () => {
-    const currentSensor = SENSOR_DEFINITIONS.find((s: SensorDefinition) => s.id === selectedSensor);
-    
+  // Searchable Node Selector
+  const NodeSelector: React.FC = () => {
     return (
-      <View style={styles.dropdownContainer}>
+      <View style={dynamicStyles.section}>
         <Text 
           style={dynamicStyles.sectionLabel}
           accessible={true}
           accessibilityRole="header"
         >
-          Select Sensor to View
+          Select Node
         </Text>
         
-        {/* Dropdown Button */}
-        <TouchableOpacity
-          onPress={() => setIsDropdownOpen(!isDropdownOpen)}
-          style={dynamicStyles.dropdownButton}
-          accessible={true}
-          accessibilityRole="button"
-          accessibilityLabel={`Selected sensor: ${currentSensor?.name}. Tap to change.`}
-          accessibilityHint="Opens a menu to select a different sensor"
-        >
-          <View style={styles.dropdownButtonContent}>
-            <Ionicons 
-              name={currentSensor?.icon || 'help'} 
-              size={20} 
-              color={currentSensor?.color}
-              accessible={false}
-            />
-            <Text style={dynamicStyles.dropdownButtonText}>
-              {currentSensor?.name}
-            </Text>
-          </View>
+        <View style={styles.searchContainer}>
           <Ionicons 
-            name={isDropdownOpen ? 'chevron-up' : 'chevron-down'} 
+            name="search" 
             size={20} 
             color={isDarkMode ? '#9CA3AF' : '#6B7280'}
-            accessible={false}
+            style={styles.searchIcon}
+            importantForAccessibility="no-hide-descendants"
           />
-        </TouchableOpacity>
-        
-        {/* Dropdown Menu */}
-        {isDropdownOpen && (
-          <View 
-            style={dynamicStyles.dropdownMenu}
+          <TextInput
+            style={dynamicStyles.searchInput}
+            placeholder="Search nodes..."
+            placeholderTextColor={isDarkMode ? '#6B7280' : '#9CA3AF'}
+            value={nodeSearchQuery}
+            onChangeText={setNodeSearchQuery}
+            onFocus={() => setIsNodeSearchFocused(true)}
+            onBlur={() => setTimeout(() => setIsNodeSearchFocused(false), 200)}
             accessible={true}
-            accessibilityLabel="Sensor selection menu"
+            accessibilityLabel="Search for nodes"
+            accessibilityHint="Type to filter available monitoring nodes"
+            accessibilityRole="search"
+          />
+        </View>
+
+        {/* Show current selection when not searching */}
+        {!isNodeSearchFocused && selectedNode && (
+          <TouchableOpacity
+            style={[dynamicStyles.chipButton, dynamicStyles.chipButtonActive, styles.selectedNodeChip]}
+            onPress={() => setIsNodeSearchFocused(true)}
+            accessible={true}
+            accessibilityRole="button"
+            accessibilityLabel={`Selected node: ${selectedNodeName}`}
+            accessibilityHint="Tap to search for a different node"
           >
-            {SENSOR_DEFINITIONS.map((sensor: SensorDefinition) => (
-              <TouchableOpacity
-                key={sensor.id}
-                onPress={() => {
-                  setSelectedSensor(sensor.id);
-                  setIsDropdownOpen(false);
-                }}
-                style={[
-                  dynamicStyles.dropdownItem,
-                  sensor.id === selectedSensor && styles.dropdownItemActive
-                ]}
-                accessible={true}
-                accessibilityRole="button"
-                accessibilityLabel={sensor.name}
-                accessibilityState={{ selected: sensor.id === selectedSensor }}
-              >
-                <View style={styles.dropdownItemContent}>
-                  <Ionicons 
-                    name={sensor.icon} 
-                    size={20} 
-                    color={sensor.color}
-                    accessible={false}
-                  />
-                  <Text style={dynamicStyles.dropdownItemText}>
-                    {sensor.name}
-                  </Text>
-                </View>
-                {sensor.id === selectedSensor && (
-                  <Ionicons 
-                    name="checkmark" 
-                    size={20} 
-                    color={sensor.color}
-                    accessible={false}
-                  />
-                )}
-              </TouchableOpacity>
-            ))}
+            <Ionicons name="radio-button-on" size={16} color="#FFFFFF" importantForAccessibility="no-hide-descendants" />
+            <Text style={dynamicStyles.chipButtonTextActive} importantForAccessibility="no-hide-descendants">{selectedNodeName}</Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Dropdown results */}
+        {isNodeSearchFocused && filteredNodes.length > 0 && (
+          <View 
+            style={dynamicStyles.nodeDropdown}
+            accessible={true}
+            accessibilityLabel="Node selection menu"
+          >
+            <ScrollView style={styles.nodeDropdownScroll} nestedScrollEnabled>
+              {filteredNodes.map((node: Node) => {
+                const nodeId = node.id || node.nodeId || node.uuid;
+                const nodeName = node.friendlyName || node.name || nodeId;
+                const isSelected = selectedNode === nodeId;
+                
+                return (
+                  <TouchableOpacity
+                    key={nodeId}
+                    onPress={() => {
+                      setSelectedNode(nodeId || null);
+                      setNodeSearchQuery('');
+                      setIsNodeSearchFocused(false);
+                    }}
+                    style={[
+                      dynamicStyles.nodeItem,
+                      isSelected && dynamicStyles.nodeItemActive,
+                    ]}
+                    accessible={true}
+                    accessibilityRole="button"
+                    accessibilityLabel={nodeName}
+                    accessibilityState={{ selected: isSelected }}
+                    accessibilityHint={`Selects ${nodeName} for monitoring`}
+                  >
+                    <Text style={dynamicStyles.nodeItemText} importantForAccessibility="no-hide-descendants">{nodeName}</Text>
+                    {isSelected && (
+                      <Ionicons name="checkmark" size={20} color={isDarkMode ? '#60A5FA' : '#2563EB'} importantForAccessibility="no-hide-descendants" />
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
           </View>
         )}
       </View>
     );
   };
 
-  // Time range selector for historical graphs
-  const TimeRangeSelector: React.FC = () => {
+  // Multi-Select Sensor Selector
+  const SensorSelector: React.FC = () => {
     return (
-      <View style={styles.timeRangeContainer}>
+      <View style={dynamicStyles.section}>
         <Text 
           style={dynamicStyles.sectionLabel}
           accessible={true}
           accessibilityRole="header"
         >
-          Time Range
+          Select Sensors
         </Text>
-        <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false}
+        <View 
+          style={styles.chipContainer}
+          accessible={true}
+          accessibilityLabel="Sensor selection buttons"
+        >
+          {SENSOR_DEFINITIONS.map((sensor: SensorDefinition) => {
+            const isSelected = selectedSensors.includes(sensor.id);
+            
+            return (
+              <TouchableOpacity
+                key={sensor.id}
+                onPress={() => toggleSensor(sensor.id)}
+                style={[
+                  dynamicStyles.chipButton,
+                  isSelected && dynamicStyles.chipButtonActive,
+                ]}
+                accessible={true}
+                accessibilityRole="button"
+                accessibilityLabel={sensor.name}
+                accessibilityState={{ selected: isSelected }}
+                accessibilityHint={isSelected ? `Tap to hide ${sensor.name} data` : `Tap to show ${sensor.name} data`}
+              >
+                <Ionicons 
+                  name={sensor.icon} 
+                  size={16} 
+                  color={isSelected ? '#FFFFFF' : sensor.color}
+                  importantForAccessibility="no-hide-descendants"
+                />
+                <Text
+                  style={[
+                    dynamicStyles.chipButtonText,
+                    isSelected && dynamicStyles.chipButtonTextActive,
+                  ]}
+                  importantForAccessibility="no-hide-descendants"
+                >
+                  {sensor.name}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
+    );
+  };
+
+  // Multi-Select Time Range Selector
+  const TimeRangeSelector: React.FC = () => {
+    return (
+      <View style={dynamicStyles.section}>
+        <Text 
+          style={dynamicStyles.sectionLabel}
+          accessible={true}
+          accessibilityRole="header"
+        >
+          Time Ranges
+        </Text>
+        <View 
+          style={styles.chipContainer}
           accessible={true}
           accessibilityLabel="Time range selection buttons"
         >
           {TIME_RANGES.map((range: TimeRange) => {
-            const isSelected = selectedTimeRange === range.id;
+            const isSelected = selectedTimeRanges.includes(range.id);
             
             return (
               <TouchableOpacity
                 key={range.id}
-                onPress={() => setSelectedTimeRange(range.id)}
+                onPress={() => toggleTimeRange(range.id)}
                 style={[
-                  dynamicStyles.timeRangeButton,
-                  isSelected && dynamicStyles.timeRangeButtonActive,
+                  dynamicStyles.chipButton,
+                  isSelected && dynamicStyles.chipButtonActive,
                 ]}
                 accessible={true}
                 accessibilityRole="button"
                 accessibilityLabel={range.label}
                 accessibilityState={{ selected: isSelected }}
-                accessibilityHint={`Shows data from the last ${range.label}`}
+                accessibilityHint={isSelected ? `Tap to hide ${range.label} graphs` : `Tap to show ${range.label} graphs`}
               >
                 <Text
                   style={[
-                    dynamicStyles.timeRangeButtonText,
-                    isSelected && dynamicStyles.timeRangeButtonTextActive,
+                    dynamicStyles.chipButtonText,
+                    isSelected && dynamicStyles.chipButtonTextActive,
                   ]}
-                  accessible={false}
+                  importantForAccessibility="no-hide-descendants"
                 >
                   {range.label}
                 </Text>
               </TouchableOpacity>
             );
           })}
-        </ScrollView>
+        </View>
       </View>
     );
   };
 
-  // Card displaying a single sensor's data
+  // Sensor Card with Multiple Time Ranges
   interface SensorCardProps {
     sensor: SensorDefinition;
   }
@@ -826,157 +814,119 @@ export default function EnvironmentalMonitor() {
   const SensorCard: React.FC<SensorCardProps> = ({ sensor }) => {
     const value = sensorData[sensor.id];
     const status = getStatus(value, sensor);
-    const history = historyData[sensor.id];
-    const hasHistoryData = history && history.datasets[0].data.length > 0;
 
     return (
       <View 
         style={dynamicStyles.card}
-        accessible={true}
-        accessibilityRole="summary"
-        accessibilityLabel={`${sensor.name} sensor card. Current reading: ${value !== null && value !== undefined ? `${value.toFixed(sensor.decimalPlaces)} ${sensor.unit}` : 'no data'}. Status: ${status.label}`}
+        accessible={false}
+        accessibilityRole="none"
       >
         {/* Sensor Header */}
-        <View style={styles.cardHeader}>
-          <Ionicons 
-            name={sensor.icon} 
-            size={24} 
-            color={sensor.color}
-            accessible={false}
-          />
-          <Text style={dynamicStyles.cardTitle}>{sensor.name}</Text>
+        <View 
+          style={styles.cardHeader}
+          accessible={true}
+          accessibilityRole="header"
+          accessibilityLabel={`${sensor.name} sensor`}
+        >
+          <Ionicons name={sensor.icon} size={24} color={sensor.color} importantForAccessibility="no-hide-descendants" />
+          <Text style={dynamicStyles.cardTitle} importantForAccessibility="no-hide-descendants">{sensor.name}</Text>
         </View>
 
-        {/* Current Reading Display */}
-        <View style={styles.currentValueContainer}>
+        {/* Current Reading */}
+        <View style={styles.currentValueContainer} accessible={false}>
           <Text 
             style={dynamicStyles.currentValueLabel}
             accessible={true}
-            accessibilityLabel="Current reading"
+            accessibilityRole="text"
           >
-            Current Reading
+            Current reading
           </Text>
           <Text 
             style={dynamicStyles.currentValue}
             accessible={true}
-            accessibilityLabel={value !== null && value !== undefined ? `${value.toFixed(sensor.decimalPlaces)} ${sensor.unit}` : 'No data available'}
+            accessibilityRole="text"
+            accessibilityLabel={`${sensor.name} current reading: ${value !== null && value !== undefined ? `${value.toFixed(sensor.decimalPlaces)} ${sensor.unit}` : 'No data available'}`}
           >
             {value !== null && value !== undefined ? `${value.toFixed(sensor.decimalPlaces)}${sensor.unit}` : '--'}
           </Text>
           <View
-            style={[
-              styles.statusBadge,
-              { backgroundColor: status.bgColor, borderColor: status.color },
-            ]}
+            style={[styles.statusBadge, { backgroundColor: status.bgColor, borderColor: status.color }]}
             accessible={true}
             accessibilityRole="text"
             accessibilityLabel={`Status: ${status.label}`}
           >
-            <Text style={[styles.statusText, { color: status.color }]}>
-              Status: {status.label}
+            <Text style={[styles.statusText, { color: status.color }]} importantForAccessibility="no-hide-descendants">
+              {status.label}
             </Text>
           </View>
         </View>
 
-        {/* Safety Thresholds */}
-        <View style={styles.thresholdsContainer}>
-          <Text 
-            style={dynamicStyles.thresholdsTitle}
-            accessible={true}
-            accessibilityRole="header"
-          >
-            Thresholds
-          </Text>
-          <View style={styles.thresholdRow}>
-            <Text 
-              style={dynamicStyles.thresholdLabel}
-              accessible={true}
-              accessibilityLabel={`Minimum safe level: ${sensor.thresholds.min} ${sensor.unit}`}
-            >
-              Minimum safe level:
-            </Text>
-            <Text style={dynamicStyles.thresholdValue}>
-              {sensor.thresholds.min}{sensor.unit}
-            </Text>
-          </View>
-          <View style={styles.thresholdRow}>
-            <Text 
-              style={dynamicStyles.thresholdLabel}
-              accessible={true}
-              accessibilityLabel={`Maximum safe level: ${sensor.thresholds.max} ${sensor.unit}`}
-            >
-              Maximum safe level:
-            </Text>
-            <Text style={dynamicStyles.thresholdValue}>
-              {sensor.thresholds.max}{sensor.unit}
-            </Text>
-          </View>
-          <View style={styles.thresholdRow}>
-            <Text 
-              style={dynamicStyles.thresholdLabel}
-              accessible={true}
-              accessibilityLabel={`Critical level: ${sensor.thresholds.critical} ${sensor.unit}`}
-            >
-              Critical level:
-            </Text>
-            <Text style={dynamicStyles.thresholdValue}>
-              {sensor.thresholds.critical}{sensor.unit}
-            </Text>
-          </View>
-        </View>
+        {/* Charts for each selected time range */}
+        {selectedTimeRanges.map((timeRangeId: string) => {
+          const timeRange = TIME_RANGES.find(tr => tr.id === timeRangeId);
+          const historyKey = `${sensor.id}_${timeRangeId}`;
+          const history = historyData[historyKey];
+          const hasHistoryData = history && history.datasets[0].data.length > 0 && history.datasets[0].data[0] !== 0;
 
-        {/* Historical Chart */}
-        <View style={styles.chartContainer}>
-          <Text 
-            style={dynamicStyles.chartSubtitle}
-            accessible={true}
-            accessibilityLabel={`Historical data for ${sensor.name}`}
-          >
-            Historical Data ({TIME_RANGES.find(tr => tr.id === selectedTimeRange)?.label})
-          </Text>
-          {hasHistoryData ? (
-            <LineChart
-              data={history}
-              width={screenWidth - 80}
-              height={220}
-              chartConfig={{
-                backgroundColor: isDarkMode ? '#1F2937' : '#ffffff',
-                backgroundGradientFrom: isDarkMode ? '#1F2937' : '#ffffff',
-                backgroundGradientTo: isDarkMode ? '#1F2937' : '#ffffff',
-                decimalPlaces: sensor.decimalPlaces,
-                color: (opacity = 1) => `${sensor.color}${Math.round(opacity * 255).toString(16).padStart(2, '0')}`,
-                labelColor: (opacity = 1) =>
-                  isDarkMode
-                    ? `rgba(156, 163, 175, ${opacity})`
-                    : `rgba(107, 114, 128, ${opacity})`,
-                propsForDots: {
-                  r: '4',
-                  strokeWidth: '2',
-                  stroke: sensor.color,
-                },
-              }}
-              bezier
-              style={styles.chart}
-              accessible={true}
-              accessibilityLabel={`Line chart showing ${sensor.name} readings over time`}
-            />
-          ) : (
-            <Text 
-              style={[styles.noDataText, { color: isDarkMode ? '#9CA3AF' : '#6B7280' }]}
-              accessible={true}
-              accessibilityLabel="No historical data available for this sensor"
-            >
-              No historical data available
-            </Text>
-          )}
-        </View>
+          return (
+            <View key={timeRangeId} style={styles.chartContainer} accessible={false}>
+              <Text 
+                style={dynamicStyles.chartSubtitle}
+                accessible={true}
+                accessibilityRole="header"
+                accessibilityLabel={`${sensor.name} historical data over ${timeRange?.label}`}
+              >
+                {timeRange?.label}
+              </Text>
+              {hasHistoryData ? (
+                <View
+                  accessible={true}
+                  accessibilityRole="image"
+                  accessibilityLabel={`Line chart showing ${sensor.name} readings over the last ${timeRange?.label}. Chart displays trend data for this time period.`}
+                >
+                  <LineChart
+                    data={history}
+                    width={screenWidth - 80}
+                    height={180}
+                    chartConfig={{
+                      backgroundColor: isDarkMode ? '#1F2937' : '#ffffff',
+                      backgroundGradientFrom: isDarkMode ? '#1F2937' : '#ffffff',
+                      backgroundGradientTo: isDarkMode ? '#1F2937' : '#ffffff',
+                      decimalPlaces: sensor.decimalPlaces,
+                      color: (opacity = 1) => `${sensor.color}${Math.round(opacity * 255).toString(16).padStart(2, '0')}`,
+                      labelColor: (opacity = 1) =>
+                        isDarkMode
+                          ? `rgba(156, 163, 175, ${opacity})`
+                          : `rgba(107, 114, 128, ${opacity})`,
+                      propsForDots: {
+                        r: '3',
+                        strokeWidth: '1.5',
+                        stroke: sensor.color,
+                      },
+                    }}
+                    bezier
+                    style={styles.chart}
+                  />
+                </View>
+              ) : (
+                <Text 
+                  style={[styles.noDataText, { color: isDarkMode ? '#9CA3AF' : '#6B7280' }]}
+                  accessible={true}
+                  accessibilityRole="text"
+                  accessibilityLabel={`No historical data available for ${sensor.name} over ${timeRange?.label}`}
+                >
+                  No data available
+                </Text>
+              )}
+            </View>
+          );
+        })}
       </View>
     );
   };
 
   // ============================================================================
   // MAIN RENDER
-  // The actual UI that gets displayed
   // ============================================================================
 
   return (
@@ -985,9 +935,9 @@ export default function EnvironmentalMonitor() {
       accessible={true}
       accessibilityLabel="Environmental monitoring dashboard"
     >
-      {/* Top Header with System Name */}
+      {/* Header */}
       <View style={dynamicStyles.header}>
-        <View style={{ flex: 1 }}>
+        <View style={{ flex: 1 }} accessible={false}>
           <Text 
             style={dynamicStyles.headerTitle}
             accessible={true}
@@ -999,15 +949,14 @@ export default function EnvironmentalMonitor() {
           <Text 
             style={dynamicStyles.headerSubtitle}
             accessible={true}
-            accessibilityLabel={`Monitoring ${config.entityPlural.toLowerCase()}`}
+            accessibilityRole="text"
           >
-            Monitoring {config.entityPlural.toLowerCase()}
+            Real-time Monitoring
           </Text>
         </View>
 
-        {/* Dark Mode Toggle Button */}
-        <TouchableOpacity
-          onPress={toggleDarkMode}
+        <TouchableOpacity 
+          onPress={toggleDarkMode} 
           style={styles.themeButton}
           accessible={true}
           accessibilityRole="button"
@@ -1018,11 +967,10 @@ export default function EnvironmentalMonitor() {
             name={isDarkMode ? 'sunny' : 'moon'}
             size={24}
             color={isDarkMode ? '#FBBF24' : '#6B7280'}
-            accessible={false}
+            importantForAccessibility="no-hide-descendants"
           />
         </TouchableOpacity>
 
-        {/* Logout Button */}
         <TouchableOpacity 
           onPress={handleLogout} 
           style={styles.logoutButton}
@@ -1035,74 +983,19 @@ export default function EnvironmentalMonitor() {
             name="log-out-outline" 
             size={24} 
             color="#DC2626"
-            accessible={false}
+            importantForAccessibility="no-hide-descendants"
           />
         </TouchableOpacity>
       </View>
 
-      {/* Node/Device Selector */}
-      <View style={dynamicStyles.nodeSelector}>
-        <Text 
-          style={dynamicStyles.sectionLabel}
-          accessible={true}
-          accessibilityRole="header"
-          accessibilityLabel={`Select ${config.entityName}`}
-        >
-          Select {config.entityName}
-        </Text>
-        <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false}
-          accessible={true}
-          accessibilityLabel="Node selection buttons"
-        >
-          {nodes.map((node: Node) => {
-            const nodeId = node.id || node.nodeId || node.uuid;
-            const nodeName = node.friendlyName || node.name || nodeId;
-            const isSelected = selectedNode === nodeId;
-            
-            return (
-              <TouchableOpacity
-                key={nodeId}
-                onPress={() => setSelectedNode(nodeId || null)}
-                style={[
-                  dynamicStyles.nodeButton,
-                  isSelected && dynamicStyles.nodeButtonActive,
-                ]}
-                accessible={true}
-                accessibilityRole="button"
-                accessibilityLabel={nodeName}
-                accessibilityState={{ selected: isSelected }}
-                accessibilityHint={`Selects ${nodeName} for monitoring`}
-              >
-                <Text
-                  style={[
-                    dynamicStyles.nodeButtonText,
-                    isSelected && dynamicStyles.nodeButtonTextActive,
-                  ]}
-                  accessible={false}
-                >
-                  {nodeName}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-      </View>
+      {/* Node Selector */}
+      <NodeSelector />
 
-      {/* Sensor Selection Dropdown */}
-      {selectedNode && !isLoading && (
-        <View style={dynamicStyles.nodeSelector}>
-          <SensorDropdown />
-        </View>
-      )}
+      {/* Sensor Selector */}
+      {selectedNode && !isLoading && <SensorSelector />}
 
       {/* Time Range Selector */}
-      {selectedNode && !isLoading && (
-        <View style={dynamicStyles.nodeSelector}>
-          <TimeRangeSelector />
-        </View>
-      )}
+      {selectedNode && !isLoading && <TimeRangeSelector />}
 
       {/* Loading Indicator */}
       {isLoading && nodes.length === 0 && (
@@ -1111,34 +1004,39 @@ export default function EnvironmentalMonitor() {
           accessible={true}
           accessibilityLabel="Loading sensor data"
           accessibilityLiveRegion="polite"
+          accessibilityRole="progressbar"
         >
           <ActivityIndicator 
             size="large" 
             color={isDarkMode ? '#60A5FA' : '#2563EB'}
-            accessible={false}
+            importantForAccessibility="no-hide-descendants"
           />
-          <Text style={[styles.loadingText, { color: isDarkMode ? '#9CA3AF' : '#6B7280' }]}>
-            Fetching sensor data...
+          <Text style={[styles.loadingText, { color: isDarkMode ? '#9CA3AF' : '#6B7280' }]} importantForAccessibility="no-hide-descendants">
+            Loading...
           </Text>
         </View>
       )}
 
-      {/* Error Message Display */}
+      {/* Error Message */}
       {error && (
         <View 
           style={styles.errorContainer}
-          accessible={true}
-          accessibilityRole="alert"
-          accessibilityLabel={`Error: ${error}`}
-          accessibilityLiveRegion="assertive"
+          accessible={false}
         >
           <Ionicons 
             name="alert-circle" 
             size={24} 
             color="#DC2626"
-            accessible={false}
+            importantForAccessibility="no-hide-descendants"
           />
-          <Text style={styles.errorText}>{error}</Text>
+          <Text 
+            style={styles.errorText}
+            accessible={true}
+            accessibilityRole="alert"
+            accessibilityLiveRegion="assertive"
+          >
+            {error}
+          </Text>
           <TouchableOpacity 
             onPress={fetchAllData} 
             style={styles.retryButton}
@@ -1147,46 +1045,47 @@ export default function EnvironmentalMonitor() {
             accessibilityLabel="Retry loading data"
             accessibilityHint="Attempts to reload sensor data from the server"
           >
-            <Text style={styles.retryButtonText}>Retry</Text>
+            <Text style={styles.retryButtonText} importantForAccessibility="no-hide-descendants">Retry</Text>
           </TouchableOpacity>
         </View>
       )}
 
-      {/* Display Selected Sensor Card */}
-      {selectedNode && !isLoading && (() => {
-        const sensor = SENSOR_DEFINITIONS.find((s: SensorDefinition) => s.id === selectedSensor);
+      {/* Sensor Cards */}
+      {selectedNode && !isLoading && selectedSensors.map((sensorId: string) => {
+        const sensor = SENSOR_DEFINITIONS.find((s: SensorDefinition) => s.id === sensorId);
         return sensor ? <SensorCard key={sensor.id} sensor={sensor} /> : null;
-      })()}
+      })}
 
-      {/* Footer with System Status */}
-      <View style={dynamicStyles.footer}>
-        <View style={styles.footerItem}>
+      {/* Footer */}
+      <View style={dynamicStyles.footer} accessible={false}>
+        <View style={styles.footerItem} accessible={false}>
           <View 
             style={styles.statusDot}
-            accessible={true}
-            accessibilityLabel="System status indicator: active"
+            importantForAccessibility="no-hide-descendants"
           />
           <Text 
             style={dynamicStyles.footerText}
             accessible={true}
+            accessibilityRole="text"
             accessibilityLabel="System active, updates every 30 seconds"
           >
-            System active • Updates every 30 seconds
+            Updates every 30s
           </Text>
         </View>
-        <View style={styles.footerItem}>
-          <Ionicons
-            name="time-outline"
-            size={14}
+        <View style={styles.footerItem} accessible={false}>
+          <Ionicons 
+            name="time-outline" 
+            size={14} 
             color={isDarkMode ? '#9CA3AF' : '#6B7280'}
-            accessible={false}
+            importantForAccessibility="no-hide-descendants"
           />
           <Text 
             style={dynamicStyles.footerText}
             accessible={true}
-            accessibilityLabel={`Last updated: ${lastUpdated.toLocaleTimeString()}`}
+            accessibilityRole="text"
+            accessibilityLabel={`Last updated at ${lastUpdated.toLocaleTimeString()}`}
           >
-            Last updated: {lastUpdated.toLocaleTimeString()}
+            Last: {lastUpdated.toLocaleTimeString()}
           </Text>
         </View>
       </View>
@@ -1196,7 +1095,6 @@ export default function EnvironmentalMonitor() {
 
 // ============================================================================
 // STYLES
-// All the styling for the components
 // ============================================================================
 
 const styles = StyleSheet.create({
@@ -1226,7 +1124,7 @@ const styles = StyleSheet.create({
   logoutButton: {
     padding: 8,
   },
-  nodeSelector: {
+  section: {
     padding: 20,
     borderBottomWidth: 1,
   },
@@ -1235,49 +1133,41 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginBottom: 12,
   },
-  nodeButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 8,
-    borderWidth: 2,
-    marginRight: 12,
-  },
-  nodeButtonActive: {},
-  nodeButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  nodeButtonTextActive: {},
   
-  // Dropdown Styles
-  dropdownContainer: {
-    marginTop: 8,
+  // Search Input
+  searchContainer: {
+    position: 'relative',
   },
-  dropdownButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
+  searchIcon: {
+    position: 'absolute',
+    left: 12,
+    top: 12,
+    zIndex: 1,
+  },
+  searchInput: {
+    paddingHorizontal: 40,
     paddingVertical: 12,
     borderRadius: 8,
-    borderWidth: 2,
+    borderWidth: 1,
+    fontSize: 15,
   },
-  dropdownButtonContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  selectedNodeChip: {
+    marginTop: 12,
+    alignSelf: 'flex-start',
   },
-  dropdownButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  dropdownMenu: {
+  
+  // Node Dropdown
+  nodeDropdown: {
     marginTop: 8,
     borderRadius: 8,
     borderWidth: 1,
+    maxHeight: 200,
     overflow: 'hidden',
   },
-  dropdownItem: {
+  nodeDropdownScroll: {
+    maxHeight: 200,
+  },
+  nodeItem: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -1285,38 +1175,103 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: 1,
   },
-  dropdownItemContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  dropdownItemText: {
+  nodeItemText: {
     fontSize: 15,
   },
-  dropdownItemActive: {
-    opacity: 0.7,
+  nodeItemActive: {},
+  
+  // Chip Buttons
+  chipContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
   },
-
-  // Time Range Selector Styles
-  timeRangeContainer: {
-    marginTop: 8,
-  },
-  timeRangeButton: {
-    paddingHorizontal: 16,
+  chipButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 20,
-    borderWidth: 1,
-    marginRight: 8,
-    minWidth: 50,
-    alignItems: 'center',
+    borderWidth: 1.5,
   },
-  timeRangeButtonActive: {},
-  timeRangeButtonText: {
+  chipButtonActive: {},
+  chipButtonText: {
     fontSize: 13,
     fontWeight: '600',
   },
-  timeRangeButtonTextActive: {},
+  chipButtonTextActive: {},
   
+  // Cards
+  card: {
+    margin: 20,
+    marginTop: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    gap: 8,
+  },
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  currentValueContainer: {
+    alignItems: 'center',
+    marginBottom: 16,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  currentValueLabel: {
+    fontSize: 12,
+    marginBottom: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  currentValue: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  statusBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  statusText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  chartContainer: {
+    marginTop: 16,
+  },
+  chartSubtitle: {
+    fontSize: 13,
+    marginBottom: 8,
+    fontWeight: '600',
+  },
+  chart: {
+    marginVertical: 8,
+    borderRadius: 12,
+  },
+  noDataText: {
+    textAlign: 'center',
+    marginVertical: 20,
+    fontSize: 13,
+  },
+  
+  // Loading & Error
   loadingContainer: {
     padding: 40,
     alignItems: 'center',
@@ -1352,87 +1307,8 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '600',
   },
-  card: {
-    margin: 20,
-    marginTop: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-    gap: 8,
-  },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  currentValueContainer: {
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  currentValueLabel: {
-    fontSize: 14,
-    marginBottom: 4,
-  },
-  currentValue: {
-    fontSize: 36,
-    fontWeight: 'bold',
-    marginBottom: 8,
-  },
-  statusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 16,
-    borderWidth: 1,
-  },
-  statusText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  thresholdsContainer: {
-    marginTop: 8,
-  },
-  thresholdsTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 8,
-  },
-  thresholdRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 4,
-  },
-  thresholdLabel: {
-    fontSize: 14,
-  },
-  thresholdValue: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  chartContainer: {
-    marginTop: 16,
-  },
-  chartSubtitle: {
-    fontSize: 14,
-    marginBottom: 8,
-  },
-  chart: {
-    marginVertical: 12,
-    borderRadius: 12,
-  },
-  noDataText: {
-    textAlign: 'center',
-    marginTop: 20,
-    fontSize: 14,
-  },
+  
+  // Footer
   footer: {
     padding: 16,
     borderTopWidth: 1,
