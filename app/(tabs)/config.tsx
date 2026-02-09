@@ -14,6 +14,7 @@ import {
   View,
 } from 'react-native';
 import ApiService from '../../services/api';
+import { useAuthenticatedAPI } from '../../hooks/useAuthenticatedAPI';
 
 const API_BASE_URL = 'https://backend.smartenvironment.tech/api/v1';
 const API_ENDPOINTS = {
@@ -28,19 +29,12 @@ type NodeSummary = {
   friendlyName?: string;
   battery?: number;
   lastHeartbeat?: number;
-  // other fields may exist
 };
 
 type NodeConfigResponse = {
   friendlyName?: string;
-  // plus lots of config keys from nodeConfig map (e.g. wifi_ssid, mqtt_server, etc.)
   [key: string]: any;
 };
-
-const getAuthHeaders = () => ({
-  'Content-Type': 'application/json',
-  'API-KEY': '49643a60-0aff-4a88-8e65-30ea428df8ee',
-});
 
 function safeNodeId(n: NodeSummary): string | null {
   return (n.id || n.nodeId || n.uuid || null) as string | null;
@@ -69,6 +63,7 @@ function batteryColor(battery?: number): string {
 
 export default function ConfigScreen() {
   const router = useRouter();
+  const { isTokenLoaded, authenticatedFetch } = useAuthenticatedAPI();
 
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [nodes, setNodes] = useState<NodeSummary[]>([]);
@@ -80,7 +75,7 @@ export default function ConfigScreen() {
   const [isLoadingConfig, setIsLoadingConfig] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  //Auth + Theme (same pattern as your Monitor screen)
+  // Auth guard
   useEffect(() => {
     (async () => {
       try {
@@ -109,14 +104,15 @@ export default function ConfigScreen() {
     } catch {}
   };
 
-  // Fetch nodes 
+  // Fetch nodes
   const fetchNodes = async () => {
+    if (!isTokenLoaded) return;
+
     setIsLoadingNodes(true);
     try {
-      const res = await fetch(`${API_BASE_URL}${API_ENDPOINTS.NODES}`, {
-        method: 'GET',
-        headers: getAuthHeaders(),
-      });
+      const res = await authenticatedFetch(
+        `${API_BASE_URL}${API_ENDPOINTS.NODES}`
+      );
 
       if (!res.ok) {
         const t = await res.text();
@@ -124,7 +120,10 @@ export default function ConfigScreen() {
       }
 
       const data = await res.json();
-      const list: NodeSummary[] = Array.isArray(data) ? data : (data.nodes || data.data || []);
+      const list: NodeSummary[] = Array.isArray(data)
+        ? data
+        : data.nodes || data.data || [];
+
       setNodes(list);
 
       if (!selectedNode && list.length > 0) {
@@ -140,19 +139,21 @@ export default function ConfigScreen() {
 
   useEffect(() => {
     fetchNodes();
-  }, []);
+  }, [isTokenLoaded]);
 
-  // Load node config when selectedNode changes 
+  // Load node config
   const fetchNodeConfig = async (nodeId: string) => {
+    if (!isTokenLoaded) return;
+
     setIsLoadingConfig(true);
     setNodeConfig(null);
     setDraft({});
+
     try {
-      const url = `${API_BASE_URL}${API_ENDPOINTS.NODE_CONFIG}?nodeId=${encodeURIComponent(nodeId)}`;
-      const res = await fetch(url, {
-        method: 'GET',
-        headers: getAuthHeaders(),
-      });
+      const url = `${API_BASE_URL}${API_ENDPOINTS.NODE_CONFIG}?nodeId=${encodeURIComponent(
+        nodeId
+      )}`;
+      const res = await authenticatedFetch(url);
 
       if (!res.ok) {
         const t = await res.text();
@@ -162,11 +163,11 @@ export default function ConfigScreen() {
       const json: NodeConfigResponse = await res.json();
       setNodeConfig(json);
 
-      // Create an editable draft (string values)
       const nextDraft: Record<string, string> = {};
       Object.entries(json).forEach(([k, v]) => {
-        if (v === null || v === undefined) return;
-        nextDraft[k] = String(v);
+        if (v !== null && v !== undefined) {
+          nextDraft[k] = String(v);
+        }
       });
 
       setDraft(nextDraft);
@@ -179,22 +180,20 @@ export default function ConfigScreen() {
 
   useEffect(() => {
     if (selectedNode) fetchNodeConfig(selectedNode);
-  }, [selectedNode]);
+  }, [selectedNode, isTokenLoaded]);
 
-  // Find selected node summary (for health display)
   const selectedNodeObj = useMemo(() => {
     return nodes.find((n) => safeNodeId(n) === selectedNode) || null;
   }, [nodes, selectedNode]);
 
-  // Save changes  
   const buildPatch = (): Record<string, string> => {
     if (!nodeConfig) return {};
     const patch: Record<string, string> = {};
 
-    // Only send changed values (compared to nodeConfig)
     Object.keys(draft).forEach((key) => {
       const original = nodeConfig[key];
-      const originalStr = original === null || original === undefined ? '' : String(original);
+      const originalStr =
+        original === null || original === undefined ? '' : String(original);
       const newStr = draft[key] ?? '';
 
       if (newStr !== originalStr) {
@@ -206,8 +205,7 @@ export default function ConfigScreen() {
   };
 
   const onSave = async () => {
-    if (!selectedNode) return;
-    if (!nodeConfig) return;
+    if (!selectedNode || !nodeConfig || !isTokenLoaded) return;
 
     const patch = buildPatch();
 
@@ -218,10 +216,11 @@ export default function ConfigScreen() {
 
     setIsSaving(true);
     try {
-      const url = `${API_BASE_URL}${API_ENDPOINTS.NODE_CONFIG}?nodeId=${encodeURIComponent(selectedNode)}`;
-      const res = await fetch(url, {
+      const url = `${API_BASE_URL}${API_ENDPOINTS.NODE_CONFIG}?nodeId=${encodeURIComponent(
+        selectedNode
+      )}`;
+      const res = await authenticatedFetch(url, {
         method: 'POST',
-        headers: getAuthHeaders(),
         body: JSON.stringify(patch),
       });
 
@@ -231,7 +230,6 @@ export default function ConfigScreen() {
       }
 
       Alert.alert('Saved', 'Configuration updated and pushed to node.');
-      // Refresh config + nodes list (to update friendlyName/health)
       await Promise.all([fetchNodeConfig(selectedNode), fetchNodes()]);
     } catch (e: any) {
       Alert.alert('Error', e?.message || 'Failed to save config');
@@ -240,7 +238,8 @@ export default function ConfigScreen() {
     }
   };
 
-  // UI helpers 
+  // ---------- UI ----------
+
   const dynamic = {
     container: { ...styles.container, backgroundColor: isDarkMode ? '#111827' : '#F9FAFB' },
     header: { ...styles.header, backgroundColor: isDarkMode ? '#1F2937' : '#FFFFFF', borderBottomColor: isDarkMode ? '#374151' : '#E5E7EB' },
@@ -259,6 +258,7 @@ export default function ConfigScreen() {
     inputLabel: { ...styles.inputLabel, color: isDarkMode ? '#D1D5DB' : '#374151' },
     divider: { ...styles.divider, backgroundColor: isDarkMode ? '#374151' : '#E5E7EB' },
   };
+
 
   // Pick a curated list of fields (instead of dumping everything)
   const FIELD_GROUPS: { title: string; fields: { key: string; label: string; secure?: boolean; keyboard?: any }[] }[] = [
