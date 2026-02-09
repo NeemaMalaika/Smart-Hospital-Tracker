@@ -145,7 +145,7 @@ const SENSOR_DEFINITIONS: SensorDefinition[] = [
     unit: 'lux',
     icon: 'sunny',
     color: '#FBBF24',
-    apiKey: ['lightRed', 'lightGreen', 'lightBlue', 'lightClear'],  // Combined
+    apiKey: 'light',
     aggregate: 'average',
     thresholds: { min: 0, max: 1000, critical: 2000 },
     decimalPlaces: 0,
