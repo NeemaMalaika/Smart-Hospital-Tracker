@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useMemo, useState } from 'react';
+import { useAuthenticatedAPI } from '../../hooks/useAuthenticatedAPI';
 import {
   ActivityIndicator,
   Alert,
@@ -8,10 +9,10 @@ import {
   StyleSheet,
   Switch,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useAuthenticatedAPI } from '../../hooks/useAuthenticatedAPI';
 
 const API_BASE_URL = 'https://backend.smartenvironment.tech/api/v1';
 
@@ -75,8 +76,6 @@ function flattenAlertsMap(map: AlertsMapResponse): BackendAlert[] {
     .sort((a, b) => b.alertedAt - a.alertedAt);
 }
 
-/* ------------------ Screen ------------------ */
-
 export default function AlertsScreen() {
   const { isTokenLoaded, authenticatedFetch } = useAuthenticatedAPI();
 
@@ -96,22 +95,17 @@ export default function AlertsScreen() {
 
   const fetchNodes = async (): Promise<NodeSummary[]> => {
     const res = await authenticatedFetch(`${API_BASE_URL}/node/list`);
-    if (!res.ok) {
-      const t = await res.text();
-      throw new Error(`Node list failed (${res.status}): ${t}`);
-    }
+    if (!res.ok) throw new Error(await res.text());
     const data = await res.json();
     return Array.isArray(data) ? data : data.nodes ?? [];
   };
 
   const ensureNodeSelected = async (list: NodeSummary[]) => {
     const stored = await AsyncStorage.getItem('selectedNodeId');
-
     if (stored && list.some((n) => n.id === stored)) {
       setNodeId(stored);
       return;
     }
-
     if (list[0]) {
       setNodeId(list[0].id);
       await AsyncStorage.setItem('selectedNodeId', list[0].id);
@@ -128,7 +122,7 @@ export default function AlertsScreen() {
         setNodes(list);
         await ensureNodeSelected(list);
       } catch (e: any) {
-        Alert.alert('Error', e?.message || 'Failed to load nodes');
+        Alert.alert('Error', e.message);
       } finally {
         setLoading(false);
       }
@@ -139,22 +133,16 @@ export default function AlertsScreen() {
 
   const loadAlertData = async (id: string) => {
     const [settingsRes, alertsRes] = await Promise.all([
-      authenticatedFetch(`${API_BASE_URL}/alerts/settings?nodeId=${encodeURIComponent(id)}`),
-      authenticatedFetch(`${API_BASE_URL}/alerts/list?nodeId=${encodeURIComponent(id)}`),
+      authenticatedFetch(`${API_BASE_URL}/alerts/settings?nodeId=${id}`),
+      authenticatedFetch(`${API_BASE_URL}/alerts/list?nodeId=${id}`),
     ]);
 
-    if (!settingsRes.ok) {
-      throw new Error(await settingsRes.text());
-    }
-    if (!alertsRes.ok) {
-      throw new Error(await alertsRes.text());
+    if (!settingsRes.ok || !alertsRes.ok) {
+      throw new Error('Failed to load alert data');
     }
 
-    const settingsJson: AlertSettings = await settingsRes.json();
-    const alertsJson: AlertsMapResponse = await alertsRes.json();
-
-    setSettings(settingsJson);
-    setAlerts(flattenAlertsMap(alertsJson));
+    setSettings(await settingsRes.json());
+    setAlerts(flattenAlertsMap(await alertsRes.json()));
   };
 
   useEffect(() => {
@@ -165,7 +153,7 @@ export default function AlertsScreen() {
         setLoading(true);
         await loadAlertData(nodeId);
       } catch (e: any) {
-        Alert.alert('Error', e?.message || 'Failed to load alerts');
+        Alert.alert('Error', e.message);
       } finally {
         setLoading(false);
       }
@@ -177,24 +165,17 @@ export default function AlertsScreen() {
   const saveSettings = async () => {
     if (!nodeId || !settings) return;
 
-    try {
-      const res = await authenticatedFetch(
-        `${API_BASE_URL}/alerts/settings?nodeId=${encodeURIComponent(nodeId)}`,
-        {
-          method: 'POST',
-          body: JSON.stringify(settings),
-        }
-      );
+    const res = await authenticatedFetch(
+      `${API_BASE_URL}/alerts/settings?nodeId=${nodeId}`,
+      { method: 'POST', body: JSON.stringify(settings) }
+    );
 
-      if (!res.ok) {
-        const t = await res.text();
-        throw new Error(t);
-      }
-
-      Alert.alert('Saved', 'Alert settings updated');
-    } catch (e: any) {
-      Alert.alert('Error', e?.message || 'Failed to save settings');
+    if (!res.ok) {
+      Alert.alert('Error', await res.text());
+      return;
     }
+
+    Alert.alert('Saved', 'Alert settings updated');
   };
 
   /* ------------------ Render ------------------ */
@@ -211,62 +192,38 @@ export default function AlertsScreen() {
   return (
     <ScrollView style={styles.container}>
       <Text style={styles.title}>Alerts</Text>
-      <Text style={styles.subtitle}>
-        Selected node: {selectedNodeObj?.friendlyName || nodeId}
-      </Text>
+      <Text>Selected node: {selectedNodeObj?.friendlyName || nodeId}</Text>
 
       <Text style={styles.section}>Active Alerts</Text>
-      {alerts.filter((a) => !a.resolved).length === 0 && (
-        <Text style={styles.muted}>No active alerts 🎉</Text>
-      )}
-
-      {alerts
-        .filter((a) => !a.resolved)
-        .map((a) => (
-          <View key={a.alertId} style={styles.alertCard}>
-            <View style={styles.alertHeader}>
-              <Ionicons name="alert-circle" size={18} color="#DC2626" />
-              <Text style={styles.alertTitle}>
-                {a.alertType} · {a.alertLevel}
-              </Text>
-            </View>
-            <Text style={styles.alertTime}>
-              {new Date(a.alertedAt).toLocaleString()}
-            </Text>
-          </View>
-        ))}
+      {alerts.filter((a) => !a.resolved).map((a) => (
+        <View key={a.alertId} style={styles.alertCard}>
+          <Text>{a.alertType} · {a.alertLevel}</Text>
+          <Text>{new Date(a.alertedAt).toLocaleString()}</Text>
+        </View>
+      ))}
 
       <Text style={styles.section}>Alert Settings</Text>
-
       {settings &&
-        ALL_ALERTS.map((a) => {
-          const enabled = settings.enabledAlerts.includes(a.type);
-
-          return (
-            <View key={a.type} style={styles.rowBetween}>
-              <View style={styles.rowLeft}>
-                <Ionicons name={a.icon as any} size={18} color="#374151" />
-                <Text style={styles.rowLabel}>{a.label}</Text>
-              </View>
-
-              <Switch
-                value={enabled}
-                onValueChange={(v) =>
-                  setSettings((s) =>
-                    s
-                      ? {
-                          ...s,
-                          enabledAlerts: v
-                            ? Array.from(new Set([...s.enabledAlerts, a.type]))
-                            : s.enabledAlerts.filter((x) => x !== a.type),
-                        }
-                      : s
-                  )
-                }
-              />
-            </View>
-          );
-        })}
+        ALL_ALERTS.map((a) => (
+          <View key={a.type} style={styles.rowBetween}>
+            <Text>{a.label}</Text>
+            <Switch
+              value={settings.enabledAlerts.includes(a.type)}
+              onValueChange={(v) =>
+                setSettings((s) =>
+                  s
+                    ? {
+                        ...s,
+                        enabledAlerts: v
+                          ? [...s.enabledAlerts, a.type]
+                          : s.enabledAlerts.filter((x) => x !== a.type),
+                      }
+                    : s
+                )
+              }
+            />
+          </View>
+        ))}
 
       <TouchableOpacity style={styles.save} onPress={saveSettings}>
         <Text style={styles.saveText}>Save Settings</Text>
@@ -280,47 +237,12 @@ export default function AlertsScreen() {
 const styles = StyleSheet.create({
   container: { padding: 20 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-
   title: { fontSize: 24, fontWeight: 'bold' },
-  subtitle: { marginTop: 4, color: '#6B7280' },
-
-  section: { marginTop: 24, fontWeight: '700', fontSize: 16 },
-  muted: { marginTop: 8, color: '#6B7280' },
-
-  alertCard: {
-    backgroundColor: '#FFFFFF',
-    padding: 12,
-    marginTop: 10,
-    borderRadius: 10,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 1,
-  },
-  alertHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  alertTitle: { fontWeight: '700' },
-  alertTime: { marginTop: 4, color: '#6B7280', fontSize: 12 },
-
-  rowBetween: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 12,
-  },
-  rowLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  rowLabel: { fontSize: 14 },
-
-  save: {
-    marginTop: 30,
-    backgroundColor: '#111827',
-    paddingVertical: 14,
-    borderRadius: 10,
-  },
-  saveText: {
-    color: '#FFFFFF',
-    textAlign: 'center',
-    fontWeight: '700',
-    fontSize: 14,
-  },
+  section: { marginTop: 20, fontWeight: '700' },
+  alertCard: { padding: 12, backgroundColor: '#fff', marginTop: 8 },
+  rowBetween: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 },
+  save: { marginTop: 20, backgroundColor: '#111827', padding: 14 },
+  saveText: { color: '#fff', textAlign: 'center' },
 });
+
 
