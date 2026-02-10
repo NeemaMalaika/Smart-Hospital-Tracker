@@ -129,6 +129,14 @@ export default function TabLayout() {
         }}
       />
 
+      {/* Hidden Map Editor Screen */}
+      <Tabs.Screen
+        name="AdminMapEditor"
+        options={{
+          href: null,
+        }}
+      />
+
       {/* Main Monitor Screen */}
       <Tabs.Screen
         name="index"

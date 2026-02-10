@@ -1,3 +1,4 @@
+import { FloorPlanMap, Room } from '@/components/FloorPlanMap';
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
 import {
@@ -12,7 +13,7 @@ import {
 //  Import the hook
 import { useAuthenticatedAPI } from '../../hooks/useAuthenticatedAPI';
 
-const HospitalFloorPlan = () => {
+const HospitalFloorPlan = ({ navigation }: any) => {
   //  Use the authentication hook
   const { isTokenLoaded, authenticatedFetch } = useAuthenticatedAPI();
   
@@ -20,7 +21,7 @@ const HospitalFloorPlan = () => {
   // STATE MANAGEMENT
   // ============================================================================
   const [selectedNode, setSelectedNode] = useState(null);
-  const [selectedRoom, setSelectedRoom] = useState(null);
+  const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState('current'); // 'current' | 'history'
   const [historyData, setHistoryData] = useState([]);
   const [roomTransition, setRoomTransition] = useState(null);
@@ -31,48 +32,85 @@ const HospitalFloorPlan = () => {
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [animatingNodes, setAnimatingNodes] = useState({});
 
+  // NEW: State for map data (replaced hardcoded constants)
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [isMapLoading, setIsMapLoading] = useState(true);
+
   // ============================================================================
   // API CONFIGURATION
   // ============================================================================
   const API_BASE_URL = 'https://backend.smartenvironment.tech/api/v1';
-  
-  // ❌ REMOVED: Old API_KEY and getHeaders function - now using the hook
 
   // ============================================================================
-  // HOSPITAL ROOM CONFIGURATION
-  // ============================================================================
-  const rooms = [
-    { id: 'room-101', name: 'ER', color: '#10b981', position: 'left', emoji: '🛏️' },
-    { id: 'room-102', name: 'Operating Theatre 1', color: '#3b82f6', position: 'left', emoji: '🛏️' },
-    { id: 'room-103', name: 'Radiology', color: '#8b5cf6', position: 'left', emoji: '🛏️' },
-    { id: 'room-201', name: 'Pharmacy', color: '#f59e0b', position: 'right', emoji: '🛏️' },
-    { id: 'room-202', name: 'Intensive Care Unit', color: '#ec4899', position: 'right', emoji: '🛏️' },
-    { id: 'room-203', name: 'GPU', color: '#06b6d4', position: 'right', emoji: '🛏️' },
-  ];
-
-  // ============================================================================
-  // FETCH DATA ON MOUNT
+  // LOAD MAP
   // ============================================================================
   useEffect(() => {
-    //  Only fetch nodes after token is loaded
+    const loadMapData = async () => {
+      if (!isTokenLoaded) return;
+
+      try {
+        setIsMapLoading(true);
+        
+        const response = await authenticatedFetch(`${API_BASE_URL}/node/map`, {
+          method: 'GET',
+        });
+
+        if (response.ok) {
+          let data = await response.json();
+          if (typeof data === 'string') {
+            try {
+              data = JSON.parse(data);
+            } catch (e) {
+              console.error("Could not parse map data string:", e);
+            }
+          }
+
+          if (data.data && data.data.rooms) {
+            data = data.data;
+          }
+
+          if (data && data.rooms && Array.isArray(data.rooms)) {
+            setRooms(data.rooms);
+          } else if (Array.isArray(data)) {
+            setRooms(data);
+          } else {
+            console.warn("incorrect map data format:", JSON.stringify(data, null, 2));
+          }
+        } else {
+          console.warn(`Map fetch failed: ${response.status}`);
+        }
+      } catch (err) {
+        console.error("Failed to load map json from backend", err);
+      } finally {
+        setIsMapLoading(false);
+      }
+    };
+
+    loadMapData();
+  }, [isTokenLoaded]); 
+
+  // ============================================================================
+  // FETCH NODES ON MOUNT
+  // ============================================================================
+  useEffect(() => {
     if (isTokenLoaded) {
       fetchNodes();
     }
-  }, [isTokenLoaded]); //Added dependency
+  }, [isTokenLoaded]);
 
   useEffect(() => {
-    if (nodes.length > 0 && isTokenLoaded) { //  Added isTokenLoaded check
+    if (nodes.length > 0 && isTokenLoaded) {
       fetchAllCurrentLocations();
       const interval = setInterval(fetchAllCurrentLocations, 5000);
       return () => clearInterval(interval);
     }
-  }, [nodes, isTokenLoaded]); // Added isTokenLoaded dependency
+  }, [nodes, isTokenLoaded]);
 
   useEffect(() => {
-    if (selectedNode && viewMode === 'history' && isTokenLoaded) { // Added isTokenLoaded check
+    if (selectedNode && viewMode === 'history' && isTokenLoaded) {
       fetchLocationHistory(selectedNode);
     }
-  }, [selectedNode, viewMode, isTokenLoaded]); //Added isTokenLoaded dependency
+  }, [selectedNode, viewMode, isTokenLoaded]);
 
   // ============================================================================
   // API FUNCTIONS
@@ -80,7 +118,6 @@ const HospitalFloorPlan = () => {
   
   const fetchNodes = async () => {
     try {
-      //  Check if token is loaded
       if (!isTokenLoaded) {
         console.log('⏳ Waiting for auth token...');
         return;
@@ -89,7 +126,6 @@ const HospitalFloorPlan = () => {
       setIsLoading(true);
       setError(null);
 
-      //  Use authenticatedFetch from hook
       const response = await authenticatedFetch(`${API_BASE_URL}/node/list`);
 
       if (!response.ok) {
@@ -99,7 +135,6 @@ const HospitalFloorPlan = () => {
       const data = await response.json();
       const nodesList = Array.isArray(data) ? data : (data.nodes || data.data || []);
       
-      // Filter to only show USER_NODE types for location tracking
       const userNodes = nodesList.filter(node => node.type === 'USER_NODE');
 
       setNodes(userNodes);
@@ -117,15 +152,7 @@ const HospitalFloorPlan = () => {
   };
 
   const fetchAllCurrentLocations = async () => {
-    console.log('===== FETCH ALL CURRENT LOCATIONS =====');
-    console.log('Number of nodes to fetch:', nodes.length);
-    console.log('Nodes:', nodes);
-    
-    // Check if token is loaded
-    if (!isTokenLoaded) {
-      console.log('⏳ Waiting for auth token...');
-      return;
-    }
+    if (!isTokenLoaded) return;
     
     try {
       const locations = {};
@@ -135,34 +162,18 @@ const HospitalFloorPlan = () => {
           const nodeId = node.id || node.nodeId || node.uuid;
           const url = `${API_BASE_URL}/location/current?nodeId=${nodeId}`;
           
-          console.log(`🔍 Fetching location for node: ${nodeId}`);
-          console.log(`📍 URL: ${url}`);
-          
           try {
-            // Use authenticatedFetch from hook
             const response = await authenticatedFetch(url);
 
-            console.log(`📊 Response status for ${nodeId}:`, response.status);
-
-            // Handle 204 No Content - no location data available yet
-            if (response.status === 204) {
-              console.log(`⚠️ No location data available for ${nodeId} (204)`);
-              return; // Skip this node
-            }
+            if (response.status === 204) return;
 
             if (response.ok) {
               const data = await response.json();
-              console.log(`✅ RAW RESPONSE DATA for ${nodeId}:`, JSON.stringify(data, null, 2));
               
               const oldLocation = currentLocations[nodeId]?.location;
               const newLocation = data.location; 
               
-              console.log(`Old location: "${oldLocation}", New location: "${newLocation}"`);
-              
               if (oldLocation && newLocation && oldLocation !== newLocation) {
-                console.log(`🔄 Location changed! ${oldLocation} → ${newLocation}`);
-                
-                // Trigger animation
                 setAnimatingNodes(prev => ({
                   ...prev,
                   [nodeId]: {
@@ -172,7 +183,6 @@ const HospitalFloorPlan = () => {
                   }
                 }));
 
-                // Clear animation after it completes
                 setTimeout(() => {
                   setAnimatingNodes(prev => {
                     const updated = { ...prev };
@@ -197,11 +207,6 @@ const HospitalFloorPlan = () => {
                 active: true,
                 rssi: data.rssi || data.wifi_rssi || -50,
               };
-              
-              console.log(`💾 Stored location for ${nodeId}:`, locations[nodeId]);
-            } else {
-              const errorText = await response.text();
-              console.error(`❌ Error response for ${nodeId}:`, response.status, errorText);
             }
           } catch (err) {
             console.error(`❌ Error fetching location for ${nodeId}:`, err);
@@ -209,33 +214,21 @@ const HospitalFloorPlan = () => {
         })
       );
       
-      console.log('📦 Final locations object:', locations);
-      console.log('📊 Total locations stored:', Object.keys(locations).length);
       setCurrentLocations(locations);
     } catch (error) {
       console.error('❌ Error fetching current locations:', error);
     }
-    console.log('=======================================');
   };
 
   const fetchLocationHistory = async (nodeId) => {
     try {
-      // Check if token is loaded
-      if (!isTokenLoaded) {
-        console.log('⏳ Waiting for auth token...');
-        return;
-      }
+      if (!isTokenLoaded) return;
 
-      //Use authenticatedFetch from hook
       const response = await authenticatedFetch(
         `${API_BASE_URL}/location/history?nodeId=${nodeId}`
       );
 
-      console.log('📜 History response status:', response.status);
-
-      // Handle 204 No Content - no history data available yet
       if (response.status === 204) {
-        console.log('⚠️ No location history available (204)');
         setHistoryData([]);
         return;
       }
@@ -245,13 +238,8 @@ const HospitalFloorPlan = () => {
       }
 
       const data = await response.json();
-      console.log('📜 History data received:', data);
-      
-      // Backend wraps history in { "history": [...] }
       const historyArray = data.history || [];
-      console.log('📜 History array:', historyArray);
 
-      // Process duplicates
       const processedHistory = [];
       let lastLocation = null;
 
@@ -268,7 +256,6 @@ const HospitalFloorPlan = () => {
         lastLocation = currentLocation;
       });
       
-      console.log('📜 Processed history:', processedHistory);
       setHistoryData(processedHistory);
     } catch (error) {
       console.error('Error fetching location history:', error);
@@ -278,19 +265,19 @@ const HospitalFloorPlan = () => {
 
   // HELPER FUNCTIONS
   
-  const getNodesInRoom = (roomId) => {
+  const getNodesInRoom = (roomName: string) => {
     return nodes.filter(node => {
       const nodeId = node.id || node.nodeId || node.uuid;
       const locationData = currentLocations[nodeId];
       
-      // Match against room name from the rooms array
-      const room = rooms.find(r => r.id === roomId);
+      const room = rooms.find(r => r.name === roomName || r.id === roomName);
       return locationData && room && locationData.location === room.name;
     });
   };
 
   const isRoomActive = (roomId) => {
-    return getNodesInRoom(roomId).length > 0;
+    const room = rooms.find(r => r.id === roomId);
+    return room ? getNodesInRoom(room.name).length > 0 : false;
   };
 
   const getNodeFriendlyName = (node) => {
@@ -299,10 +286,9 @@ const HospitalFloorPlan = () => {
   };
 
   const getNodeConfig = (node) => {
-    // All nodes are simply staff with 'S' badge
     return { 
       letter: 'S', 
-      color: '#8b5cf6' // Purple
+      color: '#8b5cf6' 
     };
   };
 
@@ -355,65 +341,15 @@ const HospitalFloorPlan = () => {
   };
 
   // ============================================================================
-  // ROOM CARD COMPONENT
-  // ============================================================================
-  
-  const RoomCard = ({ room }) => {
-    const isActive = isRoomActive(room.id);
-    const nodesInRoom = getNodesInRoom(room.id);
-    const isSelected = selectedRoom === room.id;
-    
-    return (
-      <TouchableOpacity
-        style={[
-          styles.roomCard,
-          { 
-            backgroundColor: isDarkMode ? '#1F2937' : '#FFFFFF',
-            borderColor: isSelected ? room.color : (isDarkMode ? '#374151' : '#E5E7EB'),
-            borderWidth: isSelected ? 3 : 1,
-          }
-        ]}
-        onPress={() => setSelectedRoom(room.id)}
-        accessible={true}
-        accessibilityRole="button"
-        accessibilityLabel={`${room.name}, ${nodesInRoom.length} device${nodesInRoom.length !== 1 ? 's' : ''}`}
-      >
-        <View style={styles.roomCardHeader}>
-          <Text style={[styles.roomEmoji, { fontSize: 32 }]}>{room.emoji}</Text>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.roomName, { color: room.color }]}>{room.name}</Text>
-            <Text style={[styles.roomStatus, dynamicStyles.subtext]}>
-              {nodesInRoom.length} device{nodesInRoom.length !== 1 ? 's' : ''}
-            </Text>
-          </View>
-          <View style={[styles.statusIndicator, { backgroundColor: isActive ? '#22c55e' : '#6b7280' }]} />
-        </View>
-        
-        {/* Visual Beacons */}
-        {nodesInRoom.length > 0 && (
-          <View style={styles.beaconContainer}>
-            {nodesInRoom.map((node) => {
-              const nodeId = node.id || node.nodeId || node.uuid;
-              
-              return (
-                <View key={nodeId} style={styles.beaconWrapper}>
-                  <NodeBeacon node={node} size={36} />
-                  <Text style={[styles.beaconLabel, dynamicStyles.text]} numberOfLines={1}>
-                    {getNodeFriendlyName(node)}
-                  </Text>
-                </View>
-              );
-            })}
-          </View>
-        )}
-      </TouchableOpacity>
-    );
-  };
-
-  // ============================================================================
   // RENDER
   // ============================================================================
   
+  const roomStats = rooms.reduce((acc, room) => {
+    const count = getNodesInRoom(room.name).length;
+    acc[room.name] = count;
+    return acc;
+  }, {} as Record<string, number>);
+
   return (
     <ScrollView style={dynamicStyles.container}>
       {/* HEADER */}
@@ -421,16 +357,13 @@ const HospitalFloorPlan = () => {
         <View style={{ flex: 1 }}>
           <Text style={dynamicStyles.headerTitle}>Hospital Location Tracker</Text>
           <Text style={dynamicStyles.headerSubtitle}>
-            Real-time hospital staff and device tracking
+            Real-time staff tracking
           </Text>
         </View>
 
         <TouchableOpacity
           onPress={() => setIsDarkMode(!isDarkMode)}
           style={styles.iconButton}
-          accessible={true}
-          accessibilityRole="button"
-          accessibilityLabel={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
         >
           <Ionicons
             name={isDarkMode ? 'sunny' : 'moon'}
@@ -449,10 +382,6 @@ const HospitalFloorPlan = () => {
             viewMode === 'current' && styles.toggleButtonActive,
             { backgroundColor: viewMode === 'current' ? '#3b82f6' : (isDarkMode ? '#374151' : '#E5E7EB') }
           ]}
-          accessible={true}
-          accessibilityRole="button"
-          accessibilityLabel="Switch to live view"
-          accessibilityState={{ selected: viewMode === 'current' }}
         >
           <Ionicons name="pulse" size={18} color={viewMode === 'current' ? '#FFFFFF' : (isDarkMode ? '#9CA3AF' : '#6B7280')} />
           <Text style={[styles.toggleButtonText, { color: viewMode === 'current' ? '#FFFFFF' : (isDarkMode ? '#9CA3AF' : '#6B7280') }]}>
@@ -467,10 +396,6 @@ const HospitalFloorPlan = () => {
             viewMode === 'history' && styles.toggleButtonActive,
             { backgroundColor: viewMode === 'history' ? '#8b5cf6' : (isDarkMode ? '#374151' : '#E5E7EB') }
           ]}
-          accessible={true}
-          accessibilityRole="button"
-          accessibilityLabel="Switch to history view"
-          accessibilityState={{ selected: viewMode === 'history' }}
         >
           <Ionicons name="time" size={18} color={viewMode === 'history' ? '#FFFFFF' : (isDarkMode ? '#9CA3AF' : '#6B7280')} />
           <Text style={[styles.toggleButtonText, { color: viewMode === 'history' ? '#FFFFFF' : (isDarkMode ? '#9CA3AF' : '#6B7280') }]}>
@@ -481,7 +406,7 @@ const HospitalFloorPlan = () => {
 
       {/* NODE SELECTION */}
       <View style={[styles.section, dynamicStyles.card]}>
-        <Text style={[styles.sectionLabel, dynamicStyles.text]}>Select Hospital Staff Member</Text>
+        <Text style={[styles.sectionLabel, dynamicStyles.text]}>Select Staff Member</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
           {nodes.map((node) => {
             const nodeId = node.id || node.nodeId || node.uuid;
@@ -499,10 +424,6 @@ const HospitalFloorPlan = () => {
                     borderColor: isSelected ? '#3b82f6' : 'transparent',
                   }
                 ]}
-                accessible={true}
-                accessibilityRole="button"
-                accessibilityLabel={friendlyName}
-                accessibilityState={{ selected: isSelected }}
               >
                 <Ionicons 
                   name="person" 
@@ -523,7 +444,7 @@ const HospitalFloorPlan = () => {
         <View style={[styles.alert, { backgroundColor: isDarkMode ? '#7c3aed20' : '#ede9fe' }]}>
           <Ionicons name="trending-up" size={20} color="#8b5cf6" />
           <Text style={[styles.alertText, dynamicStyles.text]}>
-            Movement: {getNodeFriendlyName(nodes.find(n => (n.id || n.nodeId || n.uuid) === roomTransition.nodeId))} → {rooms.find((r) => r.id === roomTransition.toRoom)?.name}
+            Movement: {getNodeFriendlyName(nodes.find(n => (n.id || n.nodeId || n.uuid) === roomTransition.nodeId))} → {rooms.find((r) => r.name === roomTransition.toRoom)?.name}
           </Text>
         </View>
       )}
@@ -532,7 +453,7 @@ const HospitalFloorPlan = () => {
       {isLoading && (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#3b82f6" />
-          <Text style={[styles.loadingText, dynamicStyles.subtext]}>Loading hospital map data...</Text>
+          <Text style={[styles.loadingText, dynamicStyles.subtext]}>Loading data...</Text>
         </View>
       )}
 
@@ -550,38 +471,30 @@ const HospitalFloorPlan = () => {
       {/* FLOOR PLAN VISUAL */}
       <View style={[styles.section, dynamicStyles.card]}>
         <View style={styles.sectionHeader}>
-          <Ionicons name="business" size={24} color="#3b82f6" />
-          <Text style={[styles.sectionTitle, dynamicStyles.text]}>Hospital Map</Text>
+          <Ionicons name="map" size={24} color="#3b82f6" />
+          <Text style={[styles.sectionTitle, dynamicStyles.text]}>Live Floor Plan</Text>
         </View>
 
-        <View style={styles.floorPlanContainer}>
-          {/* LEFT SIDE ROOMS */}
-          <View style={styles.roomColumn}>
-            <Text style={[styles.columnLabel, dynamicStyles.subtext]}>← Left Wing</Text>
-            {rooms.filter(r => r.position === 'left').map(room => (
-              <RoomCard key={room.id} room={room} />
-            ))}
+        {isMapLoading ? (
+          <View style={{ height: 300, justifyContent: 'center', alignItems: 'center' }}>
+            <ActivityIndicator size="large" color="#3b82f6" />
+            <Text style={[dynamicStyles.subtext, { marginTop: 10 }]}>Loading Map Layout...</Text>
           </View>
-
-          {/* CORRIDOR */}
-          <View style={[styles.corridor, { backgroundColor: isDarkMode ? '#374151' : '#E5E7EB' }]}>
-            <Ionicons name="arrow-down" size={24} color={isDarkMode ? '#9CA3AF' : '#6B7280'} />
-            <Text style={[styles.corridorText, dynamicStyles.subtext]}>CORRIDOR</Text>
-            <Ionicons name="arrow-down" size={24} color={isDarkMode ? '#9CA3AF' : '#6B7280'} />
-            <View style={styles.entrance}>
-              <Ionicons name="enter" size={20} color={isDarkMode ? '#9CA3AF' : '#6B7280'} />
-              <Text style={[styles.entranceText, dynamicStyles.subtext]}>Entrance</Text>
-            </View>
-          </View>
-
-          {/* RIGHT SIDE ROOMS */}
-          <View style={styles.roomColumn}>
-            <Text style={[styles.columnLabel, dynamicStyles.subtext]}>Right Wing →</Text>
-            {rooms.filter(r => r.position === 'right').map(room => (
-              <RoomCard key={room.id} room={room} />
-            ))}
-          </View>
-        </View>
+        ) : (
+          <>
+            <FloorPlanMap 
+              rooms={rooms}
+              stats={roomStats}
+              selectedRoomId={selectedRoom}
+              onRoomSelect={setSelectedRoom}
+              isDarkMode={isDarkMode}
+            />
+            
+            <Text style={[styles.subtext, { textAlign: 'center', marginTop: 12, fontSize: 12 }]}>
+              Pinch or scroll wheel to zoom • Drag to pan • Tap room for details
+            </Text>
+          </>
+        )}
       </View>
 
       {/* ROOM DETAILS / HISTORY */}
@@ -595,11 +508,10 @@ const HospitalFloorPlan = () => {
               </Text>
             </View>
 
-            {getNodesInRoom(selectedRoom).map((node) => {
+            {getNodesInRoom(rooms.find(r => r.id === selectedRoom)?.name || '').map((node) => {
               const nodeId = node.id || node.nodeId || node.uuid;
               const location = currentLocations[nodeId];
               const friendlyName = getNodeFriendlyName(node);
-              const config = getNodeConfig(node);
               
               return (
                 <View key={nodeId} style={[styles.detailCard, { backgroundColor: isDarkMode ? '#374151' : '#F9FAFB' }]}>
@@ -614,27 +526,11 @@ const HospitalFloorPlan = () => {
                       </Text>
                     </View>
                   </View>
-                  {location?.rssi && (
-                    <View style={styles.detailRow}>
-                      <Ionicons name="wifi" size={16} color={isDarkMode ? '#9CA3AF' : '#6B7280'} />
-                      <Text style={[styles.detailText, dynamicStyles.subtext]}>
-                        Signal: {location.rssi.toFixed(0)} dBm
-                      </Text>
-                    </View>
-                  )}
-                  {location?.timestamp && (
-                    <View style={styles.detailRow}>
-                      <Ionicons name="time" size={16} color={isDarkMode ? '#9CA3AF' : '#6B7280'} />
-                      <Text style={[styles.detailText, dynamicStyles.subtext]}>
-                        Updated: {location.timestamp.toLocaleTimeString()}
-                      </Text>
-                    </View>
-                  )}
                 </View>
               );
             })}
 
-            {getNodesInRoom(selectedRoom).length === 0 && (
+            {getNodesInRoom(rooms.find(r => r.id === selectedRoom)?.name || '').length === 0 && (
               <Text style={[styles.emptyText, dynamicStyles.subtext]}>No devices in this room</Text>
             )}
           </View>
@@ -703,12 +599,6 @@ const HospitalFloorPlan = () => {
           <Ionicons name="pulse" size={14} color={isDarkMode ? '#9CA3AF' : '#6B7280'} />
           <Text style={[styles.footerText, dynamicStyles.subtext]}>
             Active: {Object.values(currentLocations).filter(loc => loc.active).length}/{nodes.length}
-          </Text>
-        </View>
-        <View style={styles.footerRow}>
-          <Ionicons name="time" size={14} color={isDarkMode ? '#9CA3AF' : '#6B7280'} />
-          <Text style={[styles.footerText, dynamicStyles.subtext]}>
-            {new Date().toLocaleTimeString()}
           </Text>
         </View>
       </View>
@@ -859,42 +749,6 @@ const styles = StyleSheet.create({
   },
   retryButtonText: {
     color: '#FFFFFF',
-    fontWeight: '600',
-  },
-  floorPlanContainer: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  roomColumn: {
-    flex: 1,
-    gap: 12,
-  },
-  columnLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  corridor: {
-    width: 80,
-    alignItems: 'center',
-    justifyContent: 'space-around',
-    borderRadius: 8,
-    paddingVertical: 20,
-  },
-  corridorText: {
-    fontSize: 12,
-    fontWeight: '700',
-    transform: [{ rotate: '90deg' }],
-    width: 100,
-    textAlign: 'center',
-  },
-  entrance: {
-    alignItems: 'center',
-    gap: 4,
-  },
-  entranceText: {
-    fontSize: 10,
     fontWeight: '600',
   },
   roomCard: {

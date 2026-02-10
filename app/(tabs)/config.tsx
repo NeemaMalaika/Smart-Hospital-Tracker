@@ -315,6 +315,14 @@ export default function ConfigScreen() {
           <Text style={dynamic.subtitle}>Configure nodes + view system health</Text>
         </View>
 
+        {/* MAP EDITOR BUTTON */}
+        <TouchableOpacity 
+          onPress={() => router.push('/AdminMapEditor')} // Assuming the route is /AdminMapEditor or /screens/AdminMapEditor based on your structure
+          style={styles.iconButton}
+        >
+          <Ionicons name="map-outline" size={22} color={isDarkMode ? '#FBBF24' : '#6B7280'} />
+        </TouchableOpacity>
+
         <TouchableOpacity onPress={toggleDarkMode} style={styles.iconButton}>
           <Ionicons name={isDarkMode ? 'sunny' : 'moon'} size={22} color={isDarkMode ? '#FBBF24' : '#6B7280'} />
         </TouchableOpacity>
