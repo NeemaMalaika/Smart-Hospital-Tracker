@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useState } from 'react';
 import {
-  Alert,
+  ActivityIndicator,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   StyleSheet,
   Text,
@@ -41,6 +42,118 @@ export default function AdminMapEditor({ navigation, route }: any) {
   const [rooms, setRooms] = useState<Room[]>(initialRooms);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  
+  const [modalVisible, setModalVisible] = useState(false);
+  const [pastedJson, setPastedJson] = useState('');
+
+  const handleLoadFromBackend = async () => {
+    if (!isTokenLoaded) {
+      console.warn("Auth token not ready");
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const response = await authenticatedFetch(`${API_BASE_URL}/node/map`, {
+        method: 'GET',
+      });
+
+      if (response.ok) {
+        let data = await response.json();
+        
+        if (typeof data === 'string') {
+          try { data = JSON.parse(data); } catch (e) {}
+        }
+        if (data.data) data = data.data;
+
+        const loadedRooms = (data && data.rooms && Array.isArray(data.rooms)) 
+          ? data.rooms 
+          : (Array.isArray(data) ? data : []);
+
+        if (loadedRooms.length > 0) {
+          setRooms(loadedRooms);
+          setSelectedRoomId(null); 
+          alert("Map loaded successfully from server."); 
+        } else {
+          alert("No map data found on server.");
+        }
+      } else {
+        alert("Failed to fetch map data from server.");
+      }
+    } catch (error) {
+      console.error("Load error:", error);
+      alert("Network error while loading.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!isTokenLoaded) {
+      alert("Authentication token not ready.");
+      return;
+    }
+
+    setIsSaving(true);
+
+    try {
+      const payload = { rooms }; 
+      const response = await authenticatedFetch(`${API_BASE_URL}/node/map`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (response.ok) {
+        console.log("Map saved successfully");
+        if (route?.params?.onSave) {
+          route.params.onSave(rooms);
+        }
+        alert("Map updated successfully.");
+        if (navigation?.canGoBack()) {
+          navigation.goBack();
+        }
+      } else {
+        const errorText = await response.text();
+        console.error("Save failed:", errorText);
+        alert("Failed to save map.");
+      }
+    } catch (error) {
+      console.error("Network error:", error);
+      alert("Network error while saving.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleParseJson = () => {
+    try {
+      let data = JSON.parse(pastedJson);
+      
+      if (typeof data === 'string') {
+        try { data = JSON.parse(data); } catch (e) {}
+      }
+      
+      const loadedRooms = (data && data.rooms && Array.isArray(data.rooms)) 
+        ? data.rooms 
+        : (Array.isArray(data) ? data : []);
+
+      if (loadedRooms.length > 0) {
+        setRooms(loadedRooms);
+        setSelectedRoomId(null);
+        setModalVisible(false);
+        setPastedJson('');
+        alert("Map loaded from JSON input.");
+      } else {
+        alert("Invalid JSON format.");
+      }
+    } catch (error) {
+      alert("Invalid JSON string.");
+    }
+  };
 
   const handleRoomChange = (updatedRoom: Room) => {
     setRooms(prev => prev.map(r => r.id === updatedRoom.id ? updatedRoom : r));
@@ -67,50 +180,14 @@ export default function AdminMapEditor({ navigation, route }: any) {
 
   const handleDeleteRoom = () => {
     if (!selectedRoomId) return;
-    Alert.alert('Delete Room', 'Are you sure?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => {
-          setRooms(rooms.filter(r => r.id !== selectedRoomId));
-          setSelectedRoomId(null);
-      }}
-    ]);
-  };
-
-  const handleSave = async () => {
-    if (!isTokenLoaded) {
-      Alert.alert("Error", "Authentication token not ready.");
-      return;
-    }
-
-    setIsSaving(true);
-
-    try {
-      const payload = { rooms }; 
-      const response = await authenticatedFetch(`${API_BASE_URL}/node/map`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload)
-      });
-
-      if (response.ok) {
-        console.log("Map saved successfully");
-        if (route?.params?.onSave) {
-          route.params.onSave(rooms);
+    if (Platform.OS === 'web') {
+        if (confirm('Are you sure you want to delete this room?')) {
+            setRooms(rooms.filter(r => r.id !== selectedRoomId));
+            setSelectedRoomId(null);
         }
-        
-        if (navigation?.canGoBack()) {
-          navigation.goBack();
-        }
-      } else {
-        const errorText = await response.text();
-        console.error("Save failed:", errorText);
-      }
-    } catch (error) {
-      console.error("Network error:", error);
-    } finally {
-      setIsSaving(false);
+    } else {
+        setRooms(rooms.filter(r => r.id !== selectedRoomId));
+        setSelectedRoomId(null);
     }
   };
 
@@ -152,15 +229,69 @@ export default function AdminMapEditor({ navigation, route }: any) {
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Map Editor</Text>
         
-        {/* 4. Update Button UI for Loading State */}
-        <TouchableOpacity 
-          onPress={handleSave} 
-          style={[styles.saveButton, isSaving && { opacity: 0.7 }]}
-          disabled={isSaving}
-        >
-          <Text style={styles.saveButtonText}>{isSaving ? "Saving..." : "Save"}</Text>
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity 
+            onPress={() => setModalVisible(true)} 
+            style={[styles.saveButton, { marginRight: 4 }]}
+          >
+            <Text style={styles.saveButtonText}>Load from JSON</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            onPress={handleLoadFromBackend} 
+            style={[styles.saveButton, { marginRight: 4 }]}
+            disabled={isLoading}
+          >
+            {isLoading ? (
+              <ActivityIndicator size="small" color="#FFF" />
+            ) : (
+              <Text style={styles.saveButtonText}>Load from Server</Text>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            onPress={handleSave} 
+            style={[styles.saveButton, isSaving && { opacity: 0.7 }]}
+            disabled={isSaving}
+          >
+            <Text style={styles.saveButtonText}>{isSaving ? "Saving..." : "Save"}</Text>
+          </TouchableOpacity>
+        </View>
       </View>
+
+      <Modal
+        transparent={true}
+        visible={modalVisible}
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Paste Map JSON</Text>
+            <TextInput
+              style={styles.modalInput}
+              multiline
+              placeholder='Paste JSON here (e.g. { "rooms": [...] })'
+              value={pastedJson}
+              onChangeText={setPastedJson}
+              textAlignVertical="top"
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity 
+                style={[styles.modalBtn, styles.cancelBtn]} 
+                onPress={() => setModalVisible(false)}
+              >
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.modalBtn, styles.confirmBtn]} 
+                onPress={handleParseJson}
+              >
+                <Text style={styles.confirmBtnText}>Load Map</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <View style={styles.canvasContainer}>
         <FloorPlanMap 
@@ -251,11 +382,13 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F3F4F6' },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: Platform.OS === 'ios' ? 60 : 20, paddingBottom: 16, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#E5E7EB', zIndex: 10 },
   headerTitle: { fontSize: 18, fontWeight: '700', color: '#111827' },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   iconButton: { padding: 8 },
   saveButton: { backgroundColor: '#3b82f6', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 },
-  saveButtonText: { color: '#FFF', fontWeight: '600', fontSize: 14 },
+  saveButtonText: { color: '#FFF', fontWeight: '600', fontSize: 12 },
+
   canvasContainer: { flex: 1, backgroundColor: '#E5E5E5' },
-  inspector: { backgroundColor: '#FFFFFF', padding: 20, borderTopLeftRadius: 20, borderTopRightRadius: 20, shadowColor: '#000', shadowOffset: { width: 0, height: -2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 10, minHeight: 340 }, // Increased height for color picker
+  inspector: { backgroundColor: '#FFFFFF', padding: 20, borderTopLeftRadius: 20, borderTopRightRadius: 20, shadowColor: '#000', shadowOffset: { width: 0, height: -2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 10, minHeight: 340 },
   inspectorHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   inspectorTitle: { fontSize: 16, fontWeight: '700', color: '#111827' },
   inputGroup: { marginBottom: 12 },
@@ -270,4 +403,14 @@ const styles = StyleSheet.create({
   colorRow: { flexDirection: 'row', gap: 10, flexWrap: 'wrap' },
   colorCircle: { width: 32, height: 32, borderRadius: 16 },
   activeColorCircle: { borderWidth: 2, borderColor: '#111827' },
+  modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)' },
+  modalContent: { width: '80%', backgroundColor: '#FFF', borderRadius: 12, padding: 20, maxHeight: '80%', elevation: 5, shadowColor: '#000', shadowOffset: {width: 0, height: 2}, shadowOpacity: 0.25, shadowRadius: 4 },
+  modalTitle: { fontSize: 18, fontWeight: '700', marginBottom: 15, color: '#111827' },
+  modalInput: { backgroundColor: '#F9FAFB', borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 8, padding: 12, height: 200, textAlignVertical: 'top', marginBottom: 20 },
+  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10 },
+  modalBtn: { paddingVertical: 10, paddingHorizontal: 20, borderRadius: 8 },
+  cancelBtn: { backgroundColor: '#F3F4F6' },
+  cancelBtnText: { color: '#374151', fontWeight: '600' },
+  confirmBtn: { backgroundColor: '#3b82f6' },
+  confirmBtnText: { color: '#FFF', fontWeight: '600' },
 });
