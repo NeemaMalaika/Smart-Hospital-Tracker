@@ -13,244 +13,7 @@ import {
 //  Import the hook
 import { useAuthenticatedAPI } from '../../hooks/useAuthenticatedAPI';
 
-const DEFAULT_ROOMS_JSON = JSON.stringify({
-  rooms: [
-    { 
-      id: 'room-101', 
-      name: 'ER', 
-      color: '#10b981', 
-      polygon: [{x:0, y:0}, {x:5, y:0}, {x:5, y:4}, {x:0, y:4}] 
-    },
-    { 
-      id: 'room-102', 
-      name: 'Operating Theatre 1', 
-      color: '#3b82f6', 
-      polygon: [{x:0, y:4}, {x:5, y:4}, {x:5, y:8}, {x:0, y:8}] 
-    },
-    { 
-      id: 'room-103', 
-      name: 'Radiology', 
-      color: '#8b5cf6', 
-      polygon: [{x:0, y:8}, {x:5, y:8}, {x:5, y:12}, {x:0, y:12}] 
-    },
-    {
-      id: 'corridor',
-      name: 'Corridor',
-      color: '#9ca3af',
-      polygon: [{x:5, y:0}, {x:7, y:0}, {x:7, y:12}, {x:5, y:12}]
-    },
-    { 
-      id: 'room-201', 
-      name: 'Pharmacy', 
-      color: '#f59e0b', 
-      polygon: [{x:7, y:0}, {x:12, y:0}, {x:12, y:4}, {x:7, y:4}] 
-    },
-    { 
-      id: 'room-202', 
-      name: 'Intensive Care Unit', 
-      color: '#ec4899', 
-      polygon: [{x:7, y:4}, {x:12, y:4}, {x:12, y:8}, {x:7, y:8}] 
-    },
-    { 
-      id: 'room-203', 
-      name: 'Anaesthetic Room', 
-      color: '#06b6d4', 
-      polygon: [{x:7, y:8}, {x:12, y:8}, {x:12, y:12}, {x:7, y:12}] 
-    },
-  ]
-});
-
-const ALTERNATIVE_EXAMPLE_ROOMS = JSON.stringify({ //this was an editor test by me, this JSON came straight from the map editor, left here for now as an example.
-  "timestamp": "2026-02-10T14:16:58.579Z",
-  "rooms": [
-    {
-      "id": "room-1770732324393",
-      "name": "Operating Theatre",
-      "color": "#f59e0b",
-      "polygon": [
-        {
-          "x": 2,
-          "y": 2
-        },
-        {
-          "x": 12.000000000000018,
-          "y": 2
-        },
-        {
-          "x": 12.000000000000018,
-          "y": 5.800000000000001
-        },
-        {
-          "x": 2,
-          "y": 5.800000000000001
-        }
-      ]
-    },
-    {
-      "id": "room-1770732346353",
-      "name": "Anaesthetic Room",
-      "color": "#06b6d4",
-      "polygon": [
-        {
-          "x": 7.9999999999999885,
-          "y": 5.850000000000007
-        },
-        {
-          "x": 12.000000000000014,
-          "y": 5.850000000000007
-        },
-        {
-          "x": 12.000000000000014,
-          "y": 10.449999999999983
-        },
-        {
-          "x": 7.9999999999999885,
-          "y": 10.449999999999983
-        }
-      ]
-    },
-    {
-      "id": "room-1770732380393",
-      "name": "MRI",
-      "color": "#ef4444",
-      "polygon": [
-        {
-          "x": -0.8499999999999976,
-          "y": 5.7999999999999785
-        },
-        {
-          "x": 6.34999999999999,
-          "y": 5.7999999999999785
-        },
-        {
-          "x": 6.34999999999999,
-          "y": 10.399999999999963
-        },
-        {
-          "x": -0.8499999999999976,
-          "y": 10.399999999999963
-        }
-      ]
-    },
-    {
-      "id": "room-1770732425505",
-      "name": "Corridor",
-      "color": "#9ca3af",
-      "polygon": [
-        {
-          "x": 6.399999999999997,
-          "y": 5.799999999999954
-        },
-        {
-          "x": 7.8999999999999995,
-          "y": 5.799999999999954
-        },
-        {
-          "x": 7.8999999999999995,
-          "y": 10.399999999999936
-        },
-        {
-          "x": 6.399999999999997,
-          "y": 10.399999999999936
-        }
-      ]
-    },
-    {
-      "id": "room-1770732463649",
-      "name": "Ward",
-      "color": "#8b5cf6",
-      "polygon": [
-        {
-          "x": -0.8000000000000005,
-          "y": 10.349999999999966
-        },
-        {
-          "x": 12.000000000000021,
-          "y": 10.349999999999966
-        },
-        {
-          "x": 12.000000000000021,
-          "y": 14.099999999999959
-        },
-        {
-          "x": -0.8000000000000005,
-          "y": 14.099999999999959
-        }
-      ]
-    },
-    {
-      "id": "room-1770732568040",
-      "name": "Radiology Waiting",
-      "color": "#ec4899",
-      "polygon": [
-        {
-          "x": -0.800000000000004,
-          "y": 2.0499999999999527
-        },
-        {
-          "x": 2.050000000000002,
-          "y": 2.0499999999999527
-        },
-        {
-          "x": 2.050000000000002,
-          "y": 5.84999999999995
-        },
-        {
-          "x": -0.800000000000004,
-          "y": 5.84999999999995
-        }
-      ]
-    },
-    {
-      "id": "room-1770732653049",
-      "name": "A and E",
-      "color": "#10b981",
-      "polygon": [
-        {
-          "x": -5.3,
-          "y": 2.0499999999999576
-        },
-        {
-          "x": -0.7999999999999963,
-          "y": 2.0499999999999576
-        },
-        {
-          "x": -0.7999999999999963,
-          "y": 14.149999999999938
-        },
-        {
-          "x": -5.3,
-          "y": 14.149999999999938
-        }
-      ]
-    },
-    {
-      "id": "room-1770732706640",
-      "name": "Reception",
-      "color": "#f59e0b",
-      "polygon": [
-        {
-          "x": -8.099999999999987,
-          "y": 4.1499999999999355
-        },
-        {
-          "x": -5.300000000000001,
-          "y": 4.1499999999999355
-        },
-        {
-          "x": -5.300000000000001,
-          "y": 10.999999999999893
-        },
-        {
-          "x": -8.099999999999987,
-          "y": 10.999999999999893
-        }
-      ]
-    }
-  ]
-});
-
-const HospitalFloorPlan = () => {
+const HospitalFloorPlan = ({ navigation }: any) => {
   //  Use the authentication hook
   const { isTokenLoaded, authenticatedFetch } = useAuthenticatedAPI();
   
@@ -268,6 +31,8 @@ const HospitalFloorPlan = () => {
   const [error, setError] = useState(null);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [animatingNodes, setAnimatingNodes] = useState({});
+
+  // NEW: State for map data (replaced hardcoded constants)
   const [rooms, setRooms] = useState<Room[]>([]);
   const [isMapLoading, setIsMapLoading] = useState(true);
 
@@ -276,32 +41,56 @@ const HospitalFloorPlan = () => {
   // ============================================================================
   const API_BASE_URL = 'https://backend.smartenvironment.tech/api/v1';
 
-
   // ============================================================================
-  // HOSPITAL ROOM CONFIGURATION (replaced with json loading, still needs to pull from backend currently just uses defaults)
+  // LOAD MAP
   // ============================================================================
   useEffect(() => {
     const loadMapData = async () => {
+      if (!isTokenLoaded) return;
+
       try {
         setIsMapLoading(true);
-        const parsedData = JSON.parse(DEFAULT_ROOMS_JSON);
-        //const parsedData = JSON.parse(ALTERNATIVE_EXAMPLE_ROOMS);
         
-        if (parsedData && Array.isArray(parsedData.rooms)) {
-          setRooms(parsedData.rooms);
+        const response = await authenticatedFetch(`${API_BASE_URL}/node/map`, {
+          method: 'GET',
+        });
+
+        if (response.ok) {
+          let data = await response.json();
+          if (typeof data === 'string') {
+            try {
+              data = JSON.parse(data);
+            } catch (e) {
+              console.error("Could not parse map data string:", e);
+            }
+          }
+
+          if (data.data && data.data.rooms) {
+            data = data.data;
+          }
+
+          if (data && data.rooms && Array.isArray(data.rooms)) {
+            setRooms(data.rooms);
+          } else if (Array.isArray(data)) {
+            setRooms(data);
+          } else {
+            console.warn("incorrect map data format:", JSON.stringify(data, null, 2));
+          }
+        } else {
+          console.warn(`Map fetch failed: ${response.status}`);
         }
       } catch (err) {
-        console.error("Failed to load map json", err);
+        console.error("Failed to load map json from backend", err);
       } finally {
         setIsMapLoading(false);
       }
     };
 
     loadMapData();
-  }, []);
+  }, [isTokenLoaded]); 
 
   // ============================================================================
-  // FETCH DATA ON MOUNT (EXISTING LOGIC)
+  // FETCH NODES ON MOUNT
   // ============================================================================
   useEffect(() => {
     if (isTokenLoaded) {

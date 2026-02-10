@@ -1,6 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useState } from 'react';
-
 import {
   Alert,
   KeyboardAvoidingView,
@@ -12,7 +11,9 @@ import {
   View
 } from 'react-native';
 
-import { FloorPlanMap, Point, Room } from '@/components/FloorPlanMap'; //use existing map for editing, prevent unnecessary duplication
+import { FloorPlanMap, Point, Room } from '@/components/FloorPlanMap';
+import { useAuthenticatedAPI } from '../../hooks/useAuthenticatedAPI';
+const API_BASE_URL = 'https://backend.smartenvironment.tech/api/v1';
 
 const ROOM_COLORS = [
   '#9ca3af',
@@ -35,9 +36,11 @@ const getBounds = (points: Point[]) => {
 };
 
 export default function AdminMapEditor({ navigation, route }: any) {
+  const { authenticatedFetch, isTokenLoaded } = useAuthenticatedAPI();
   const initialRooms = route?.params?.currentRooms || [];
   const [rooms, setRooms] = useState<Room[]>(initialRooms);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   const handleRoomChange = (updatedRoom: Room) => {
     setRooms(prev => prev.map(r => r.id === updatedRoom.id ? updatedRoom : r));
@@ -73,20 +76,41 @@ export default function AdminMapEditor({ navigation, route }: any) {
     ]);
   };
 
-  const handleSave = () => {
-    const mapDataPayload = {
-      timestamp: new Date().toISOString(),
-      rooms: rooms
-    };
-
-    const jsonString = JSON.stringify(mapDataPayload, null, 2);
-    console.log("map JSON below here:");
-    console.log(jsonString);
-    if (route?.params?.onSave) {
-      route.params.onSave(rooms);
+  const handleSave = async () => {
+    if (!isTokenLoaded) {
+      Alert.alert("Error", "Authentication token not ready.");
+      return;
     }
-    if (navigation?.canGoBack()) {
-      navigation.goBack();
+
+    setIsSaving(true);
+
+    try {
+      const payload = { rooms }; 
+      const response = await authenticatedFetch(`${API_BASE_URL}/node/map`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (response.ok) {
+        console.log("Map saved successfully");
+        if (route?.params?.onSave) {
+          route.params.onSave(rooms);
+        }
+        
+        if (navigation?.canGoBack()) {
+          navigation.goBack();
+        }
+      } else {
+        const errorText = await response.text();
+        console.error("Save failed:", errorText);
+      }
+    } catch (error) {
+      console.error("Network error:", error);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -127,10 +151,17 @@ export default function AdminMapEditor({ navigation, route }: any) {
           <Ionicons name="arrow-back" size={24} color="#111827" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Map Editor</Text>
-        <TouchableOpacity onPress={handleSave} style={styles.saveButton}>
-          <Text style={styles.saveButtonText}>Save</Text>
+        
+        {/* 4. Update Button UI for Loading State */}
+        <TouchableOpacity 
+          onPress={handleSave} 
+          style={[styles.saveButton, isSaving && { opacity: 0.7 }]}
+          disabled={isSaving}
+        >
+          <Text style={styles.saveButtonText}>{isSaving ? "Saving..." : "Save"}</Text>
         </TouchableOpacity>
       </View>
+
       <View style={styles.canvasContainer}>
         <FloorPlanMap 
           rooms={rooms}
