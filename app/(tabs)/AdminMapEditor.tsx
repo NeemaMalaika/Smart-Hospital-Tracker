@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router'; // 1. Import useRouter
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
@@ -14,6 +15,7 @@ import {
 
 import { FloorPlanMap, Point, Room } from '@/components/FloorPlanMap';
 import { useAuthenticatedAPI } from '../../hooks/useAuthenticatedAPI';
+
 const API_BASE_URL = 'https://backend.smartenvironment.tech/api/v1';
 
 const ROOM_COLORS = [
@@ -36,8 +38,10 @@ const getBounds = (points: Point[]) => {
   return { x: minX, y: minY, w: Math.max(...xs) - minX, h: Math.max(...ys) - minY };
 };
 
-export default function AdminMapEditor({ navigation, route }: any) {
+export default function AdminMapEditor({ route }: any) {
+  const router = useRouter();
   const { authenticatedFetch, isTokenLoaded } = useAuthenticatedAPI();
+  
   const initialRooms = route?.params?.currentRooms || [];
   const [rooms, setRooms] = useState<Room[]>(initialRooms);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
@@ -113,9 +117,6 @@ export default function AdminMapEditor({ navigation, route }: any) {
           route.params.onSave(rooms);
         }
         alert("Map updated successfully.");
-        if (navigation?.canGoBack()) {
-          navigation.goBack();
-        }
       } else {
         const errorText = await response.text();
         console.error("Save failed:", errorText);
@@ -224,7 +225,7 @@ export default function AdminMapEditor({ navigation, route }: any) {
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation?.goBack()} style={styles.iconButton}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.iconButton}>
           <Ionicons name="arrow-back" size={24} color="#111827" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Map Editor</Text>
