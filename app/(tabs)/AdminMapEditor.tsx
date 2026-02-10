@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router'; // 1. Import useRouter
+import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
@@ -47,7 +47,6 @@ export default function AdminMapEditor({ route }: any) {
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  
   const [modalVisible, setModalVisible] = useState(false);
   const [pastedJson, setPastedJson] = useState('');
 
@@ -225,22 +224,27 @@ export default function AdminMapEditor({ route }: any) {
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.iconButton}>
-          <Ionicons name="arrow-back" size={24} color="#111827" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Map Editor</Text>
+        <View style={styles.headerLeft}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color="#111827" />
+          </TouchableOpacity>
+          <View>
+            <Text style={styles.headerTitle}>Map Editor</Text>
+            <Text style={styles.headerSubtitle}>Customise floor plan</Text>
+          </View>
+        </View>
         
         <View style={styles.headerActions}>
           <TouchableOpacity 
             onPress={() => setModalVisible(true)} 
-            style={[styles.saveButton, { marginRight: 4 }]}
+            style={[styles.saveButton, { marginRight: 6 }]}
           >
             <Text style={styles.saveButtonText}>Load from JSON</Text>
           </TouchableOpacity>
 
           <TouchableOpacity 
             onPress={handleLoadFromBackend} 
-            style={[styles.saveButton, { marginRight: 4 }]}
+            style={[styles.saveButton, { marginRight: 6 }]}
             disabled={isLoading}
           >
             {isLoading ? (
@@ -381,11 +385,39 @@ export default function AdminMapEditor({ route }: any) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F3F4F6' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: Platform.OS === 'ios' ? 60 : 20, paddingBottom: 16, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#E5E7EB', zIndex: 10 },
-  headerTitle: { fontSize: 18, fontWeight: '700', color: '#111827' },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  iconButton: { padding: 8 },
-  saveButton: { backgroundColor: '#3b82f6', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 },
+  header: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    justifyContent: 'space-between', 
+    paddingHorizontal: 20, 
+    paddingBottom: 20,
+    paddingTop: Platform.OS === 'ios' ? 60 : 20, 
+    backgroundColor: '#FFFFFF', 
+    borderBottomWidth: 1, 
+    borderBottomColor: '#E5E7EB', 
+    zIndex: 10,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  backButton: {
+    marginRight: 12,
+  },
+  headerTitle: { 
+    fontSize: 24, 
+    fontWeight: 'bold', 
+    color: '#111827' 
+  },
+  headerSubtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  headerActions: { flexDirection: 'row', alignItems: 'center' },
+  
+  saveButton: { backgroundColor: '#3b82f6', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 },
   saveButtonText: { color: '#FFF', fontWeight: '600', fontSize: 12 },
 
   canvasContainer: { flex: 1, backgroundColor: '#E5E5E5' },
