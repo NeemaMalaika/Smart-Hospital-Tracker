@@ -1356,8 +1356,8 @@ export default function EnvironmentalMonitor() {
                         ? `rgba(156, 163, 175, ${opacity})`
                         : `rgba(107, 114, 128, ${opacity})`,
                     propsForDots: {
-                      r: '2.5',
-                      strokeWidth: '1.5',
+                      r: '0',
+                      strokeWidth: '0',
                       stroke: sensor.color,
                     },
                   }}

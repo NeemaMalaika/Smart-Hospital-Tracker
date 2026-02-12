@@ -23,7 +23,7 @@ interface APIConfig {
   BASE_URL: string;
   ENDPOINTS: {
     NODES: string;
-    CURRENT_SENSORS: string;
+    NODE_SUMMARY: string;
   };
   POLLING_INTERVAL: number;
 }
@@ -67,7 +67,7 @@ const API_CONFIG: APIConfig = {
   BASE_URL: 'https://backend.smartenvironment.tech/api/v1',
   ENDPOINTS: {
     NODES: '/node/list',
-    CURRENT_SENSORS: '/sensors/current',
+    NODE_SUMMARY: '/node/summary',
   },
   POLLING_INTERVAL: 30000,
 };
@@ -142,7 +142,7 @@ const SUMMARY_METRICS: SummaryMetric[] = [
     unit: '',
     icon: 'people',
     color: '#6366F1',
-    apiKey: 'occupancy',
+    apiKey: 'peopleInRoom',
     decimalPlaces: 0,
   },
 ];
@@ -272,42 +272,50 @@ export default function SummaryDashboard() {
     }
   };
 
-  const fetchCurrentData = async (): Promise<void> => {
-    if (!selectedNode || !isTokenLoaded) return;
-    try {
-      setError(null);
-      const url = `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.CURRENT_SENSORS}?nodeId=${selectedNode}`;
-      const response = await authenticatedFetch(url);
+ const fetchCurrentData = async (): Promise<void> => {
+  if (!selectedNode || !isTokenLoaded) return;
+  try {
+    setError(null);
+    const url = `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.NODE_SUMMARY}?nodeId=${selectedNode}`;
+    const response = await authenticatedFetch(url);
 
-      if (response.status === 204) {
-        setSensorData({});
-        setLastUpdated(new Date());
+    if (response.status === 204) {
+      setSensorData({});
+      setLastUpdated(new Date());
+      return;
+    }
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+    const data = await response.json();
+    
+    // Log the raw API response
+    console.log('📦 Raw API Response:', JSON.stringify(data, null, 2));
+    
+    const processed: SensorData = {};
+
+    SUMMARY_METRICS.forEach((metric) => {
+      let raw = data[metric.apiKey];
+
+      // Log each metric processing
+      console.log(`🔍 Processing ${metric.name} (apiKey: ${metric.apiKey}):`, raw);
+      
+      if (raw === undefined || raw === null) {
+        console.log(`⚠️ ${metric.name} is null/undefined`);
+        processed[metric.id] = null;
         return;
       }
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      processed[metric.id] = parseFloat(raw);
+    });
 
-      const data = await response.json();
-      const processed: SensorData = {};
-
-      SUMMARY_METRICS.forEach((metric) => {
-        let raw = data[metric.apiKey];
-        if (raw === undefined || raw === null) {
-          processed[metric.id] = null;
-          return;
-        }
-        if (metric.apiKey === 'pressure') {
-          raw = Number(raw) / 1000;
-        }
-        processed[metric.id] = parseFloat(raw);
-      });
-
-      setSensorData(processed);
-      setLastUpdated(new Date());
-    } catch (e) {
-      console.error('Error fetching sensor data:', e);
-      setError('Failed to fetch data from server');
-    }
-  };
+    console.log('✅ Processed Sensor Data:', JSON.stringify(processed, null, 2));
+    
+    setSensorData(processed);
+    setLastUpdated(new Date());
+  } catch (e) {
+    console.error('Error fetching sensor data:', e);
+    setError('Failed to fetch data from server');
+  }
+};
 
   // ============================================================================
   // HELPERS
