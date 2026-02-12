@@ -1546,7 +1546,7 @@ const styles = StyleSheet.create({
   },
   nodeRowPhone: {
     flexDirection: 'column',
-    gap: 8,
+    gap: 12,
     width: '100%',
     zIndex: 1002,
   },
@@ -1578,7 +1578,7 @@ const styles = StyleSheet.create({
   // Search
   searchContainer: {
     position: 'relative',
-    flex: 1,
+    width: '100%',
     minWidth: 180,
     zIndex: 1003,
   },
@@ -1598,6 +1598,7 @@ const styles = StyleSheet.create({
     paddingLeft: 36,
     paddingRight: 12,
     paddingVertical: 9,
+    minHeight: 42,
     borderRadius: 8,
     borderWidth: 1,
     fontSize: 14,
