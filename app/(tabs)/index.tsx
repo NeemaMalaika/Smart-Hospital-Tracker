@@ -17,51 +17,7 @@ import {
 import { LineChart } from 'react-native-chart-kit';
 import { useAuthenticatedAPI } from '../../hooks/useAuthenticatedAPI';
 
-// ============================================================================
-// WCAG 2.1 LEVEL AA COMPLIANCE
-// ============================================================================
-// This component implements comprehensive accessibility features following
-// WCAG 2.1 Level AA guidelines:
-//
-// 1. PERCEIVABLE (Principle 1)
-//    - Text alternatives: All icons marked with importantForAccessibility
-//    - Time-based media: Charts include textual data summaries
-//    - Adaptable: Semantic structure with proper roles (header, banner, menu, etc.)
-//    - Distinguishable: Dark mode support, sufficient color contrast
-//
-// 2. OPERABLE (Principle 2)
-//    - Keyboard accessible: All interactive elements have accessibilityRole
-//    - Touch target size: Minimum 44x44pt touch targets
-//    - Navigation: Logical tab order through proper component structure
-//    - Input Assistance: accessibilityHint provides guidance
-//
-// 3. UNDERSTANDABLE (Principle 3)
-//    - Readable: Clear, descriptive labels on all interactive elements
-//    - Predictable: Consistent navigation, clear state changes
-//    - Input Assistance: Error identification and suggestions
-//    - accessibilityState: Communicates selected/expanded/checked states
-//
-// 4. ROBUST (Principle 4)
-//    - Compatible: Uses standard React Native accessibility APIs
-//    - Semantic HTML-like roles: banner, toolbar, menu, menuitem, article, etc.
-//    - Live regions: accessibilityLiveRegion for dynamic content updates
-//    - Screen reader optimized: Proper use of accessible/importantForAccessibility
-//
-// KEY ACCESSIBILITY FEATURES:
-// - accessibilityRole: Semantic roles for all interactive elements
-// - accessibilityLabel: Descriptive labels for screen readers
-// - accessibilityHint: Usage instructions ("Double tap to...")
-// - accessibilityState: Selected, expanded, checked states
-// - accessibilityLiveRegion: "polite" for loading, "assertive" for errors
-// - importantForAccessibility: Hides decorative elements from screen readers
-// - accessible: Groups or exposes elements properly
-// - Chart data summaries: Min/max/average announced for graphs
-// - Proper focus management: Dropdown menus close on selection
-// ============================================================================
-
-// ============================================================================
 // TYPE DEFINITIONS
-// ============================================================================
 
 interface APIConfig {
   BASE_URL: string;
@@ -148,10 +104,7 @@ const API_CONFIG: APIConfig = {
 // TIME RANGES
 // ============================================================================
 const TIME_RANGES: TimeRange[] = [
-  { id: '5m', label: '5 min', minutes: 5 },
-  { id: '15m', label: '15 min', minutes: 15 },
-  { id: '1h', label: '1 hour', minutes: 60 },
-  { id: '3h', label: '3 hours', minutes: 180 },
+  { id: '5m', label: 'Current', minutes: 5 },
   { id: '6h', label: '6 hours', minutes: 360 },
   { id: '24h', label: '24 hours', minutes: 1440 },
   { id: '7d', label: '7 days', minutes: 10080 },
@@ -198,8 +151,7 @@ const SENSOR_DEFINITIONS: SensorDefinition[] = [
     unit: 'lux',
     icon: 'sunny',
     color: '#FBBF24',
-    apiKey: ['lightRed', 'lightGreen', 'lightBlue', 'lightClear'],
-    aggregate: 'average',
+    apiKey: 'light',
     thresholds: { min: 0, max: 1000, critical: 2000 },
     decimalPlaces: 0,
   },
@@ -266,11 +218,25 @@ export default function EnvironmentalMonitor() {
   const [isTimeRangeDropdownOpen, setIsTimeRangeDropdownOpen] = useState<boolean>(false);
 
   // ============================================================================
+  // THRESHOLD EDITING STATE  (NEW)
+  // ============================================================================
+  const [customThresholds, setCustomThresholds] = useState<{
+    [sensorId: string]: SensorThresholds;
+  }>({});
+  const [editingSensor, setEditingSensor] = useState<string | null>(null);
+  const [thresholdInputs, setThresholdInputs] = useState<{
+    min: string;
+    max: string;
+    critical: string;
+  }>({ min: '', max: '', critical: '' });
+
+  // ============================================================================
   // LIFECYCLE HOOKS
   // ============================================================================
   useEffect(() => {
     loadConfig();
     loadThemePreference();
+    loadCustomThresholds();
     if (isTokenLoaded) {
       fetchNodes();
     }
@@ -319,6 +285,68 @@ export default function EnvironmentalMonitor() {
     } catch (e) {
       console.error('Theme save error:', e);
     }
+  };
+
+  // ============================================================================
+  // THRESHOLD HELPERS  (NEW)
+  // ============================================================================
+  const loadCustomThresholds = async (): Promise<void> => {
+    try {
+      const saved = await AsyncStorage.getItem('customSensorThresholds');
+      if (saved) setCustomThresholds(JSON.parse(saved));
+    } catch (e) {
+      console.error('Threshold load error:', e);
+    }
+  };
+
+  const getEffectiveThresholds = (sensor: SensorDefinition): SensorThresholds => {
+    return customThresholds[sensor.id] ?? sensor.thresholds;
+  };
+
+  const openThresholdEditor = (sensor: SensorDefinition): void => {
+    const effective = getEffectiveThresholds(sensor);
+    setThresholdInputs({
+      min: String(effective.min),
+      max: String(effective.max),
+      critical: String(effective.critical),
+    });
+    setEditingSensor(sensor.id);
+    // Close other dropdowns
+    setIsNodeDropdownOpen(false);
+    setIsSensorDropdownOpen(false);
+    setIsTimeRangeDropdownOpen(false);
+  };
+
+  const saveThresholds = async (sensorId: string): Promise<void> => {
+    const min = parseFloat(thresholdInputs.min);
+    const max = parseFloat(thresholdInputs.max);
+    const critical = parseFloat(thresholdInputs.critical);
+
+    if (isNaN(min) || isNaN(max) || isNaN(critical)) {
+      Alert.alert('Invalid Values', 'Please enter valid numbers for all threshold fields.');
+      return;
+    }
+
+    const updated = { ...customThresholds, [sensorId]: { min, max, critical } };
+    setCustomThresholds(updated);
+    try {
+      await AsyncStorage.setItem('customSensorThresholds', JSON.stringify(updated));
+    } catch (e) {
+      console.error('Threshold save error:', e);
+    }
+    setEditingSensor(null);
+  };
+
+  const resetThresholds = async (sensor: SensorDefinition): Promise<void> => {
+    const updated = { ...customThresholds };
+    delete updated[sensor.id];
+    setCustomThresholds(updated);
+    try {
+      await AsyncStorage.setItem('customSensorThresholds', JSON.stringify(updated));
+    } catch (e) {
+      console.error('Threshold reset error:', e);
+    }
+    setEditingSensor(null);
   };
 
   // ============================================================================
@@ -511,7 +539,8 @@ export default function EnvironmentalMonitor() {
       return { label: 'No Data', color: '#6B7280', bgColor: isDarkMode ? '#374151' : '#F3F4F6' };
     }
 
-    const thresholds = sensor.thresholds;
+    // Use custom thresholds if set, otherwise use defaults
+    const thresholds = getEffectiveThresholds(sensor);
 
     if (value > thresholds.critical) {
       return {
@@ -542,20 +571,6 @@ export default function EnvironmentalMonitor() {
       color: isDarkMode ? '#9b34d3ff' : '#8f10b9ff',
       bgColor: isDarkMode ? '#32064eff' : '#e6d1faff',
     };
-  };
-
-  const handleLogout = async (): Promise<void> => {
-    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Sign Out',
-        style: 'destructive',
-        onPress: async () => {
-          await AsyncStorage.removeItem('isAuthenticated');
-          router.replace('/login');
-        },
-      },
-    ]);
   };
 
   const toggleSensor = (sensorId: string): void => {
@@ -643,6 +658,19 @@ export default function EnvironmentalMonitor() {
       borderTopColor: isDarkMode ? '#374151' : '#E5E7EB',
     },
     footerText: { ...styles.footerText, color: isDarkMode ? '#9CA3AF' : '#6B7280' },
+    // Threshold editor styles
+    thresholdPanel: {
+      ...styles.thresholdPanel,
+      backgroundColor: isDarkMode ? '#111827' : '#F3F4F6',
+      borderColor: isDarkMode ? '#374151' : '#D1D5DB',
+    },
+    thresholdLabel: { ...styles.thresholdLabel, color: isDarkMode ? '#9CA3AF' : '#6B7280' },
+    thresholdInput: {
+      ...styles.thresholdInput,
+      backgroundColor: isDarkMode ? '#1F2937' : '#FFFFFF',
+      color: isDarkMode ? '#F9FAFB' : '#111827',
+      borderColor: isDarkMode ? '#4B5563' : '#D1D5DB',
+    },
   };
 
   // ============================================================================
@@ -912,7 +940,7 @@ export default function EnvironmentalMonitor() {
           </View>
         )}
 
-        {/* Dropdown Menus - Rendered with proper z-index */}
+        {/* Dropdown Menus - Rendered with proper Za-index */}
         {/* Node Dropdown */}
         {isNodeDropdownOpen && filteredNodes.length > 0 && (
           <View 
@@ -960,7 +988,7 @@ export default function EnvironmentalMonitor() {
           </View>
         )}
 
-        {/* Sensor Dropdown */}
+        {/* Sensor Dropdown lists */}
         {isSensorDropdownOpen && (
           <View 
             style={[
@@ -1013,7 +1041,7 @@ export default function EnvironmentalMonitor() {
           </View>
         )}
 
-        {/* Time Range Dropdown */}
+        {/* Time Range Dropdown list */}
         {isTimeRangeDropdownOpen && (
           <View 
             style={[
@@ -1068,6 +1096,9 @@ export default function EnvironmentalMonitor() {
   const SensorCard: React.FC<SensorCardProps> = ({ sensor }) => {
     const value = sensorData[sensor.id];
     const status = getStatus(value, sensor);
+    const isEditing = editingSensor === sensor.id;
+    const effectiveThresholds = getEffectiveThresholds(sensor);
+    const hasCustomThresholds = !!customThresholds[sensor.id];
 
     const currentReadingText = value !== null && value !== undefined 
       ? `${value.toFixed(sensor.decimalPlaces)} ${sensor.unit}` 
@@ -1095,7 +1126,159 @@ export default function EnvironmentalMonitor() {
           <Text style={dynamicStyles.cardTitle} importantForAccessibility="no-hide-descendants">
             {sensor.name}
           </Text>
+
+          {/* ── THRESHOLD EDIT BUTTON (NEW) ── */}
+          <TouchableOpacity
+            onPress={() =>
+              isEditing ? setEditingSensor(null) : openThresholdEditor(sensor)
+            }
+            style={styles.thresholdEditButton}
+            accessibilityRole="button"
+            accessibilityLabel={
+              isEditing
+                ? `Close threshold editor for ${sensor.name}`
+                : `Edit alert thresholds for ${sensor.name}`
+            }
+            accessibilityHint={
+              isEditing
+                ? 'Double tap to close the threshold editor'
+                : 'Double tap to open threshold editor and change min, max and critical values'
+            }
+            accessibilityState={{ expanded: isEditing }}
+          >
+            <Ionicons
+              name={isEditing ? 'close-circle-outline' : 'options-outline'}
+              size={18}
+              color={
+                hasCustomThresholds
+                  ? '#3B82F6'
+                  : isDarkMode
+                  ? '#9CA3AF'
+                  : '#6B7280'
+              }
+              importantForAccessibility="no-hide-descendants"
+              accessible={false}
+            />
+          </TouchableOpacity>
         </View>
+
+        {/* ── THRESHOLD EDITOR PANEL (NEW) ── */}
+        {isEditing && (
+          <View
+            style={dynamicStyles.thresholdPanel}
+            accessible={true}
+            accessibilityLabel={`Threshold editor for ${sensor.name}. Current values: minimum ${effectiveThresholds.min}, maximum ${effectiveThresholds.max}, critical ${effectiveThresholds.critical}`}
+          >
+            <Text
+              style={[styles.thresholdPanelTitle, { color: isDarkMode ? '#F9FAFB' : '#111827' }]}
+              accessibilityRole="header"
+              importantForAccessibility="no-hide-descendants"
+            >
+              Alert Thresholds ({sensor.unit})
+            </Text>
+
+            <View style={styles.thresholdRow}>
+              {/* Min */}
+              <View style={styles.thresholdField}>
+                <Text
+                  style={dynamicStyles.thresholdLabel}
+                  importantForAccessibility="no-hide-descendants"
+                >
+                  Min
+                </Text>
+                <TextInput
+                  style={dynamicStyles.thresholdInput}
+                  value={thresholdInputs.min}
+                  onChangeText={(v) =>
+                    setThresholdInputs((prev) => ({ ...prev, min: v }))
+                  }
+                  keyboardType="numeric"
+                  accessibilityLabel={`Minimum threshold for ${sensor.name}, currently ${thresholdInputs.min} ${sensor.unit}`}
+                  accessibilityHint="Enter a number to set the minimum normal value"
+                  returnKeyType="next"
+                />
+              </View>
+
+              {/* Max */}
+              <View style={styles.thresholdField}>
+                <Text
+                  style={dynamicStyles.thresholdLabel}
+                  importantForAccessibility="no-hide-descendants"
+                >
+                  Max
+                </Text>
+                <TextInput
+                  style={dynamicStyles.thresholdInput}
+                  value={thresholdInputs.max}
+                  onChangeText={(v) =>
+                    setThresholdInputs((prev) => ({ ...prev, max: v }))
+                  }
+                  keyboardType="numeric"
+                  accessibilityLabel={`Maximum threshold for ${sensor.name}, currently ${thresholdInputs.max} ${sensor.unit}`}
+                  accessibilityHint="Enter a number to set the maximum normal value"
+                  returnKeyType="next"
+                />
+              </View>
+
+              {/* Critical */}
+              <View style={styles.thresholdField}>
+                <Text
+                  style={dynamicStyles.thresholdLabel}
+                  importantForAccessibility="no-hide-descendants"
+                >
+                  Critical
+                </Text>
+                <TextInput
+                  style={dynamicStyles.thresholdInput}
+                  value={thresholdInputs.critical}
+                  onChangeText={(v) =>
+                    setThresholdInputs((prev) => ({ ...prev, critical: v }))
+                  }
+                  keyboardType="numeric"
+                  accessibilityLabel={`Critical threshold for ${sensor.name}, currently ${thresholdInputs.critical} ${sensor.unit}`}
+                  accessibilityHint="Enter a number to set the critical alert value"
+                  returnKeyType="done"
+                  onSubmitEditing={() => saveThresholds(sensor.id)}
+                />
+              </View>
+            </View>
+
+            {/* Action Buttons */}
+            <View style={styles.thresholdActions}>
+              <TouchableOpacity
+                style={styles.thresholdSaveButton}
+                onPress={() => saveThresholds(sensor.id)}
+                accessibilityRole="button"
+                accessibilityLabel={`Save threshold changes for ${sensor.name}`}
+                accessibilityHint="Double tap to apply and save the new threshold values"
+              >
+                <Text
+                  style={styles.thresholdSaveText}
+                  importantForAccessibility="no-hide-descendants"
+                >
+                  Save
+                </Text>
+              </TouchableOpacity>
+
+              {hasCustomThresholds && (
+                <TouchableOpacity
+                  style={styles.thresholdResetButton}
+                  onPress={() => resetThresholds(sensor)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Reset thresholds for ${sensor.name} to defaults`}
+                  accessibilityHint="Double tap to restore the original default threshold values"
+                >
+                  <Text
+                    style={styles.thresholdResetText}
+                    importantForAccessibility="no-hide-descendants"
+                  >
+                    Reset to Default
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        )}
 
         <View 
           style={styles.currentValueContainer}
@@ -1235,19 +1418,6 @@ export default function EnvironmentalMonitor() {
           />
         </TouchableOpacity>
 
-        <TouchableOpacity
-          onPress={handleLogout}
-          style={styles.headerButton}
-          accessibilityRole="button"
-          accessibilityLabel="Sign out"
-        >
-          <Ionicons
-            name="log-out-outline"
-            size={22}
-            color="#DC2626"
-            importantForAccessibility="no-hide-descendants"
-          />
-        </TouchableOpacity>
       </View>
 
       {/* Control Bar */}
@@ -1500,14 +1670,14 @@ const styles = StyleSheet.create({
   // Dropdown positioning
   nodeDropdownMenu: {
     position: 'absolute',
-    top: 88, // Below search bar and selected node chip
+    top: 88,
     left: 16,
     right: 16,
     zIndex: 10000,
   },
   sensorDropdownMenuPhone: {
     position: 'absolute',
-    top: 150, // Below filters row on phone
+    top: 150,
     left: 16,
     right: '50%',
     marginRight: 4,
@@ -1515,7 +1685,7 @@ const styles = StyleSheet.create({
   },
   timeDropdownMenuPhone: {
     position: 'absolute',
-    top: 150, // Below filters row on phone
+    top: 150,
     left: '50%',
     right: 16,
     marginLeft: 4,
@@ -1523,15 +1693,15 @@ const styles = StyleSheet.create({
   },
   sensorDropdownMenuLaptop: {
     position: 'absolute',
-    top: 102, // Below both rows on laptop
+    top: 102,
     left: 16,
     width: 200,
     zIndex: 10000,
   },
   timeDropdownMenuLaptop: {
     position: 'absolute',
-    top: 102, // Below both rows on laptop
-    left: 228, // After sensor dropdown (200px + 12px gap + 16px padding)
+    top: 102,
+    left: 228,
     width: 200,
     zIndex: 10000,
   },
@@ -1606,6 +1776,81 @@ const styles = StyleSheet.create({
   cardTitle: {
     fontSize: 16,
     fontWeight: '700',
+    flex: 1,
+  },
+
+  // Threshold Edit Button to change is user wants to
+  thresholdEditButton: {
+    padding: 4,
+    marginLeft: 4,
+  },
+
+  // Threshold Panel 
+  thresholdPanel: {
+    borderRadius: 8,
+    borderWidth: 1,
+    padding: 12,
+    marginBottom: 12,
+  },
+  thresholdPanelTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    marginBottom: 10,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  thresholdRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 10,
+  },
+  thresholdField: {
+    flex: 1,
+  },
+  thresholdLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    marginBottom: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
+  thresholdInput: {
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  thresholdActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  thresholdSaveButton: {
+    flex: 1,
+    backgroundColor: '#2563EB',
+    borderRadius: 6,
+    paddingVertical: 8,
+    alignItems: 'center',
+  },
+  thresholdSaveText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  thresholdResetButton: {
+    flex: 1,
+    backgroundColor: 'transparent',
+    borderRadius: 6,
+    paddingVertical: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#6B7280',
+  },
+  thresholdResetText: {
+    color: '#6B7280',
+    fontSize: 13,
+    fontWeight: '500',
   },
 
   // Current Value

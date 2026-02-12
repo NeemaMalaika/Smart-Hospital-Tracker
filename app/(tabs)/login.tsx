@@ -4,7 +4,6 @@ import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -34,28 +33,59 @@ export default function LoginScreen() {
   const [toastType, setToastType] = useState<'success' | 'error' | 'info'>('info');
 
   const showToast = (message: string, type: 'success' | 'error' | 'info') => {
-    setToastMessage(message);
-    setToastType(type);
-    setToastVisible(true);
+    // Dismiss any existing toast first, then show the new one
+    setToastVisible(false);
+    setTimeout(() => {
+      setToastMessage(message);
+      setToastType(type);
+      setToastVisible(true);
+    }, 50);
+  };
+
+  /**
+   * Determines whether an error looks like bad credentials or lik a network problem
+   */
+  const isCredentialsError = (error: unknown): boolean => {
+    if (!error) return false;
+    const msg = String(
+      (error as any)?.message || (error as any)?.status || error
+    ).toLowerCase();
+    return (
+      msg.includes('401') ||
+      msg.includes('403') ||
+      msg.includes('unauthorized') ||
+      msg.includes('forbidden') ||
+      msg.includes('invalid') ||
+      msg.includes('incorrect') ||
+      msg.includes('wrong') ||
+      msg.includes('credentials') ||
+      msg.includes('password') ||
+      msg.includes('username')
+    );
   };
 
   /**
    * Handle real backend login
    */
   const handleLogin = async () => {
-    // Validation
-    if (!username.trim() || !password.trim()) {
-      Alert.alert('❌ Error', 'Please enter both username and password');
+    // Input validation — use toast instead of Alert for consistency
+    if (!username.trim()) {
+      showToast('Please enter your username.', 'error');
+      return;
+    }
+
+    if (!password.trim()) {
+      showToast('Please enter your password.', 'error');
       return;
     }
 
     if (username.trim().length < 3) {
-      Alert.alert('❌ Error', 'Username must be at least 3 characters');
+      showToast('Username must be at least 3 characters.', 'error');
       return;
     }
 
     if (password.length < 6) {
-      Alert.alert('❌ Error', 'Password must be at least 6 characters');
+      showToast('Password must be at least 6 characters.', 'error');
       return;
     }
 
@@ -63,52 +93,64 @@ export default function LoginScreen() {
 
     try {
       console.log('🔐 Attempting login...');
-      
+
       const response = await ApiService.login({
         username: username.trim(),
         password: password,
       });
 
-      console.log('📡 Login response:', response.success);
-      console.log('📡 Full response:', response);
+      console.log('📡 Login response success:', response.success);
 
       if (response.success) {
         // Set authentication flag FIRST
         await AsyncStorage.setItem('isAuthenticated', 'true');
         console.log('✅ Authentication set to true');
-        
-        //  Save session token if available for API requests
-        if (response.token) {
-          await AsyncStorage.setItem('sessionToken', response.token);
-          console.log('✅ Session token saved:', response.token);
-        } else if (response.data?.token) {
-          await AsyncStorage.setItem('sessionToken', response.data.token);
-          console.log('✅ Session token saved from data:', response.data.token);
-        } else if (response.access_token) {
-          await AsyncStorage.setItem('sessionToken', response.access_token);
-          console.log('✅ Access token saved:', response.access_token);
+
+        // Save session token if available for API requests.
+        // Cast to `any` because the LoginResponse type only declares `token`;
+        // `data` and `access_token` are optional fields some backends return.
+        const r = response as any;
+        if (r.token) {
+          await AsyncStorage.setItem('sessionToken', r.token);
+          console.log('✅ Session token saved:', r.token);
+        } else if (r.data?.token) {
+          await AsyncStorage.setItem('sessionToken', r.data.token);
+          console.log('✅ Session token saved from data:', r.data.token);
+        } else if (r.access_token) {
+          await AsyncStorage.setItem('sessionToken', r.access_token);
+          console.log('✅ Access token saved:', r.access_token);
         } else {
           console.log('⚠️ No token found in response, using API-KEY only');
         }
-        
+
         // Show success toast
-        showToast(`Welcome back, ${username}! Login successful.`, 'success');
-        
-        // Navigate to dashboard after short delay
+        showToast(`Welcome back, ${username.trim()}! Login successful.`, 'success');
+
+        // Navigate to summary dashboard after short delay.
+        // Cast required until Expo Router re-generates typed routes for summary.
         setTimeout(() => {
-          console.log(' Navigating to dashboard...');
-          router.replace('/(tabs)');
+          console.log('🚀 Navigating to summary dashboard...');
+          router.replace('/(tabs)/summary' as any);
         }, 800);
-        
       } else {
-        // Login failed - show error toast
-        console.log(' Login failed');
+        // Server explicitly said login failed
+        console.log('❌ Login failed — server returned success: false');
         showToast('Incorrect username or password. Please try again.', 'error');
-        setPassword(''); // Clear password on failure
+        setPassword('');
       }
     } catch (error) {
-      console.error(' Login error:', error);
-      showToast('Unable to connect to server. Check your internet connection.', 'error');
+      console.error('❌ Login error:', error);
+
+      // know between bad credentials and a network/server problem
+      if (isCredentialsError(error)) {
+        showToast('Incorrect username or password. Please try again.', 'error');
+        setPassword('');
+      } else {
+        showToast(
+          'Unable to connect to the server. Please check your internet connection.',
+          'error'
+        );
+      }
     } finally {
       setIsLoading(false);
     }
@@ -126,7 +168,7 @@ export default function LoginScreen() {
         type={toastType}
         onHide={() => setToastVisible(false)}
       />
-      
+
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
@@ -140,9 +182,7 @@ export default function LoginScreen() {
 
         {/* Page Title */}
         <Text style={styles.title}>Admin Access</Text>
-        <Text style={styles.subtitle}>
-          Enter your credentials below to login
-        </Text>
+        <Text style={styles.subtitle}>Enter your credentials below to login</Text>
 
         {/* Login Form */}
         <View style={styles.formContainer}>
@@ -174,6 +214,8 @@ export default function LoginScreen() {
                 autoCapitalize="none"
                 editable={!isLoading}
                 autoCorrect={false}
+                onSubmitEditing={handleLogin}
+                returnKeyType="go"
               />
 
               {/* Show / Hide password */}
@@ -181,6 +223,8 @@ export default function LoginScreen() {
                 onPress={() => setShowPassword(!showPassword)}
                 style={styles.eyeButton}
                 disabled={isLoading}
+                accessibilityRole="button"
+                accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
               >
                 <Ionicons
                   name={showPassword ? 'eye-off' : 'eye'}
@@ -195,11 +239,14 @@ export default function LoginScreen() {
           <TouchableOpacity
             style={[
               styles.loginButton,
-              (isLoading || !username || !password) &&
-                styles.loginButtonDisabled,
+              (isLoading || !username || !password) && styles.loginButtonDisabled,
             ]}
             onPress={handleLogin}
             disabled={isLoading || !username || !password}
+            accessibilityRole="button"
+            accessibilityLabel="Sign in"
+            accessibilityHint="Double tap to submit your login credentials"
+            accessibilityState={{ disabled: isLoading || !username || !password }}
           >
             {isLoading ? (
               <ActivityIndicator color="#FFFFFF" />
@@ -207,7 +254,7 @@ export default function LoginScreen() {
               <Text style={styles.loginButtonText}>Sign In</Text>
             )}
           </TouchableOpacity>
-        </View> 
+        </View>
 
         {/* Footer Notice */}
         <View style={styles.securityNotice}>
@@ -334,4 +381,3 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 });
-

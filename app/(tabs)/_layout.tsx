@@ -49,10 +49,10 @@ export default function TabLayout() {
       try {
         // Wait a tiny bit for AsyncStorage to finish writing
         await new Promise(resolve => setTimeout(resolve, 100));
-        
+
         const authStatus = await AsyncStorage.getItem('isAuthenticated');
         const isValid = authStatus === 'true';
-        
+
         const onLoginPage = segments[1] === 'login';
         const onRegisterPage = segments[1] === 'register';
 
@@ -69,8 +69,9 @@ export default function TabLayout() {
           console.log('🚫 Not authenticated - redirecting to login');
           router.replace('/(tabs)/login');
         } else if (isValid && (onLoginPage || onRegisterPage)) {
-          console.log('✅ Already authenticated - redirecting to dashboard');
-          router.replace('/(tabs)');
+          // Redirect authenticated users to the summary dashboard
+          console.log('✅ Already authenticated - redirecting to summary dashboard');
+          router.replace('/(tabs)/summary');
         }
       } catch (error) {
         console.error('❌ Error rechecking auth:', error);
@@ -134,6 +135,17 @@ export default function TabLayout() {
         name="AdminMapEditor"
         options={{
           href: null,
+        }}
+      />
+
+      {/* Summary Dashboard — first viewable tab, default afteradmin login */}
+      <Tabs.Screen
+        name="summary"
+        options={{
+          title: 'Summary',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="grid-outline" size={size} color={color} />
+          ),
         }}
       />
 
