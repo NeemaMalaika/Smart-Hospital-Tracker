@@ -1127,7 +1127,7 @@ export default function EnvironmentalMonitor() {
             {sensor.name}
           </Text>
 
-          {/* ── THRESHOLD EDIT BUTTON (NEW) ── */}
+          {/* ── THRESHOLD EDIT BUTTON ── */}
           <TouchableOpacity
             onPress={() =>
               isEditing ? setEditingSensor(null) : openThresholdEditor(sensor)
@@ -1344,13 +1344,16 @@ export default function EnvironmentalMonitor() {
                   height={chartHeight}
                   withInnerLines={false}
                   segments={4}
+                  withShadow={false} 
+                  //fillShadowGradient={sensor.color}
+                  //fillShadowGradientOpacity={0.15}
                   chartConfig={{
                     backgroundColor: isDarkMode ? '#1F2937' : '#ffffff',
                     backgroundGradientFrom: isDarkMode ? '#1F2937' : '#ffffff',
                     backgroundGradientTo: isDarkMode ? '#1F2937' : '#ffffff',
                     decimalPlaces: sensor.decimalPlaces,
-                    color: (opacity = 1) =>
-                      `${sensor.color}${Math.round(opacity * 255).toString(16).padStart(2, '0')}`,
+                    color: (_opacity = 1) => sensor.color,
+                    strokeWidth: 3,
                     labelColor: (opacity = 1) =>
                       isDarkMode
                         ? `rgba(156, 163, 175, ${opacity})`
