@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   Alert,
   Platform,
@@ -131,17 +132,18 @@ const DEFAULT_SETTINGS: AlertSettings = {
 };
 
 function badgeColors(severity: Severity, isDark: boolean) {
+  // More accessible colours (distinct hue + good contrast in both modes)
   if (severity === 'CRITICAL') {
     return {
-      bg: isDark ? '#913316ff' : '#feeae2ff',
-      text: isDark ? '#f89571ff' : '#dc6626ff',
-      border: isDark ? '#f89571ff' : '#dc6626ff',
+      bg: isDark ? '#4C1D95' : '#F3E8FF', // purple family (distinct from warning)
+      text: isDark ? '#E9D5FF' : '#6B21A8',
+      border: isDark ? '#C4B5FD' : '#A855F7',
     };
   }
   return {
-    bg: isDark ? '#78350F' : '#FEF3C7',
-    text: isDark ? '#FBBF24' : '#F59E0B',
-    border: isDark ? '#FBBF24' : '#F59E0B',
+    bg: isDark ? '#7C2D12' : '#FFEDD5', // orange/amber
+    text: isDark ? '#FED7AA' : '#9A3412',
+    border: isDark ? '#FDBA74' : '#F97316',
   };
 }
 
@@ -149,20 +151,20 @@ function statusChip(status: AlertStatus, isDark: boolean) {
   if (status === 'RESOLVED') {
     return {
       bg: isDark ? '#064E3B' : '#D1FAE5',
-      text: isDark ? '#34D399' : '#059669',
+      text: isDark ? '#34D399' : '#047857',
       border: isDark ? '#10B981' : '#059669',
     };
   }
   if (status === 'ATTENDED') {
     return {
       bg: isDark ? '#1E3A8A' : '#DBEAFE',
-      text: isDark ? '#93C5FD' : '#2563EB',
+      text: isDark ? '#93C5FD' : '#1D4ED8',
       border: isDark ? '#60A5FA' : '#2563EB',
     };
   }
   return {
     bg: isDark ? '#374151' : '#F3F4F6',
-    text: isDark ? '#D1D5DB' : '#6B7280',
+    text: isDark ? '#E5E7EB' : '#4B5563',
     border: isDark ? '#4B5563' : '#D1D5DB',
   };
 }
@@ -178,6 +180,14 @@ function clampNum(v: number, min: number, max: number) {
 export default function AlertsScreen() {
   const router = useRouter();
 
+  // ---------- DEV logger ----------
+  const log = (...args: any[]) => {
+    if (__DEV__) console.log('[AlertsScreen]', ...args);
+  };
+  const warn = (...args: any[]) => {
+    if (__DEV__) console.warn('[AlertsScreen]', ...args);
+  };
+
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [nodes, setNodes] = useState<NodeSummary[]>([]);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
@@ -189,13 +199,18 @@ export default function AlertsScreen() {
   const [currentSensors, setCurrentSensors] = useState<CurrentSensorsResponse | null>(null);
   const [thresholds, setThresholds] = useState<Record<string, SensorThreshold>>({});
 
+  const lastAnnouncedHashRef = useRef<string>('');
+  const isMountedRef = useRef<boolean>(false);
+
   // -------------------- Auth + Theme --------------------
   useEffect(() => {
     (async () => {
       try {
         const isAuth = await AsyncStorage.getItem('isAuthenticated');
+        log('Auth check ->', Boolean(isAuth));
         if (!isAuth) router.replace('/login');
-      } catch {
+      } catch (e) {
+        warn('Auth check failed -> redirecting', e);
         router.replace('/login');
       }
     })();
@@ -205,45 +220,68 @@ export default function AlertsScreen() {
     (async () => {
       try {
         const savedTheme = await AsyncStorage.getItem('isDarkMode');
-        if (savedTheme !== null) setIsDarkMode(savedTheme === 'true');
-      } catch {}
+        if (savedTheme !== null) {
+          setIsDarkMode(savedTheme === 'true');
+          log('Loaded theme from storage:', savedTheme);
+        }
+      } catch (e) {
+        warn('Failed to load theme from storage', e);
+      }
     })();
   }, []);
 
   const toggleDarkMode = async () => {
     const newMode = !isDarkMode;
     setIsDarkMode(newMode);
+    log('Theme toggled ->', newMode ? 'Dark' : 'Light');
     try {
       await AsyncStorage.setItem('isDarkMode', String(newMode));
-    } catch {}
+    } catch (e) {
+      warn('Failed to persist theme', e);
+    }
   };
 
   // -------------------- Node Fetch --------------------
   const fetchNodes = async () => {
+    const t0 = Date.now();
     setIsLoadingNodes(true);
+    log('NODES_FETCH_START');
+
     try {
       const res = await fetch(`${API_BASE_URL}${API_ENDPOINTS.NODES}`, {
         method: 'GET',
         headers: getAuthHeaders(),
       });
-      if (!res.ok) throw new Error(`Failed to fetch nodes: ${res.statusText}`);
+      if (!res.ok) throw new Error(`Failed to fetch nodes: ${res.status} ${res.statusText}`);
+
       const data = await res.json();
       const list: NodeSummary[] = Array.isArray(data) ? data : data.nodes || [];
       setNodes(list);
 
+      log('NODES_FETCH_SUCCESS', { count: list.length, ms: Date.now() - t0 });
+
       if (!selectedNode && list.length > 0) {
         const first = safeNodeId(list[0]);
-        if (first) setSelectedNode(first);
+        if (first) {
+          setSelectedNode(first);
+          log('NODE_AUTO_SELECTED', first);
+        }
       }
     } catch (e: any) {
+      warn('NODES_FETCH_FAIL', e?.message || e);
       Alert.alert('Error', e.message || 'Could not fetch nodes');
     } finally {
       setIsLoadingNodes(false);
     }
   };
-  useEffect(() => { fetchNodes(); }, []);
+  useEffect(() => {
+    fetchNodes();
+  }, []);
 
-  const selectedNodeObj = useMemo(() => nodes.find((n) => safeNodeId(n) === selectedNode) || null, [nodes, selectedNode]);
+  const selectedNodeObj = useMemo(
+    () => nodes.find((n) => safeNodeId(n) === selectedNode) || null,
+    [nodes, selectedNode]
+  );
   const selectedNodeName = selectedNodeObj?.friendlyName || selectedNodeObj?.name || selectedNode || 'Unknown Node';
 
   // -------------------- Storage Keys --------------------
@@ -258,11 +296,14 @@ export default function AlertsScreen() {
 
   const loadStored = async () => {
     if (!selectedNode || !storageKeys.settingsKey || !storageKeys.logKey) return;
+    log('LOAD_STORED_START', selectedNode);
+
     try {
       const [sRaw, lRaw] = await Promise.all([
         AsyncStorage.getItem(storageKeys.settingsKey),
         AsyncStorage.getItem(storageKeys.logKey),
       ]);
+
       if (sRaw) {
         const parsed = JSON.parse(sRaw);
         setSettings({
@@ -271,46 +312,98 @@ export default function AlertsScreen() {
           enabled: { ...DEFAULT_SETTINGS.enabled, ...(parsed.enabled || {}) },
           actions: { ...DEFAULT_SETTINGS.actions, ...(parsed.actions || {}) },
         });
-      } else setSettings(DEFAULT_SETTINGS);
+        log('LOAD_SETTINGS_SUCCESS');
+      } else {
+        setSettings(DEFAULT_SETTINGS);
+        log('LOAD_SETTINGS_DEFAULT');
+      }
 
       if (lRaw) {
         const parsedLog: AlertLogItem[] = JSON.parse(lRaw);
         setAlertLog(Array.isArray(parsedLog) ? parsedLog : []);
-      } else setAlertLog([]);
-    } catch {
+        log('LOAD_LOG_SUCCESS', { count: Array.isArray(parsedLog) ? parsedLog.length : 0 });
+      } else {
+        setAlertLog([]);
+        log('LOAD_LOG_EMPTY');
+      }
+    } catch (e) {
+      warn('LOAD_STORED_FAIL', e);
       setSettings(DEFAULT_SETTINGS);
       setAlertLog([]);
     }
   };
-  useEffect(() => { if (selectedNode) loadStored(); }, [selectedNode]);
+  useEffect(() => {
+    if (selectedNode) loadStored();
+  }, [selectedNode]);
 
-  const persistSettings = async (next: AlertSettings) => { if (storageKeys.settingsKey) await AsyncStorage.setItem(storageKeys.settingsKey, JSON.stringify(next)); };
-  const persistLog = async (nextLog: AlertLogItem[]) => { if (storageKeys.logKey) await AsyncStorage.setItem(storageKeys.logKey, JSON.stringify(nextLog)); };
+  const persistSettings = async (next: AlertSettings) => {
+    if (!storageKeys.settingsKey) return;
+    try {
+      await AsyncStorage.setItem(storageKeys.settingsKey, JSON.stringify(next));
+      log('PERSIST_SETTINGS_OK');
+    } catch (e) {
+      warn('PERSIST_SETTINGS_FAIL', e);
+    }
+  };
+  const persistLog = async (nextLog: AlertLogItem[]) => {
+    if (!storageKeys.logKey) return;
+    try {
+      await AsyncStorage.setItem(storageKeys.logKey, JSON.stringify(nextLog));
+      log('PERSIST_LOG_OK', { count: nextLog.length });
+    } catch (e) {
+      warn('PERSIST_LOG_FAIL', e);
+    }
+  };
 
   // -------------------- Fetch Sensors + Thresholds --------------------
   const fetchCurrentAndThresholds = async () => {
     if (!selectedNode) return;
+    const t0 = Date.now();
+    log('SENSORS_FETCH_START', selectedNode);
+
     try {
       const [currentRes, thresholdRes] = await Promise.all([
-        fetch(`${API_BASE_URL}${API_ENDPOINTS.CURRENT_SENSORS}?nodeId=${encodeURIComponent(selectedNode)}`, { headers: getAuthHeaders() }),
-        fetch(`${API_BASE_URL}${API_ENDPOINTS.THRESHOLDS}?nodeId=${encodeURIComponent(selectedNode)}`, { headers: getAuthHeaders() }),
+        fetch(`${API_BASE_URL}${API_ENDPOINTS.CURRENT_SENSORS}?nodeId=${encodeURIComponent(selectedNode)}`, {
+          headers: getAuthHeaders(),
+        }),
+        fetch(`${API_BASE_URL}${API_ENDPOINTS.THRESHOLDS}?nodeId=${encodeURIComponent(selectedNode)}`, {
+          headers: getAuthHeaders(),
+        }),
       ]);
 
-      if (currentRes.status === 204) setCurrentSensors(null);
-      else if (currentRes.ok) setCurrentSensors(await currentRes.json());
+      if (currentRes.status === 204) {
+        setCurrentSensors(null);
+        log('SENSORS_CURRENT_204');
+      } else if (currentRes.ok) {
+        const json = await currentRes.json();
+        setCurrentSensors(json);
+        log('SENSORS_CURRENT_OK');
+      } else {
+        warn('SENSORS_CURRENT_FAIL', currentRes.status);
+      }
 
       if (thresholdRes.ok) {
         const parsed: ThresholdResponse = JSON.parse(await thresholdRes.text());
         setThresholds(parsed.thresholds || {});
+        log('SENSORS_THRESHOLDS_OK', { keys: Object.keys(parsed.thresholds || {}).length });
+      } else {
+        warn('SENSORS_THRESHOLDS_FAIL', thresholdRes.status);
       }
-    } catch {}
+
+      log('SENSORS_FETCH_DONE', { ms: Date.now() - t0 });
+    } catch (e) {
+      warn('SENSORS_FETCH_EXCEPTION', e);
+    }
   };
 
   // -------------------- Compute Active Alerts --------------------
   const computeAlerts = async () => {
     if (!selectedNode) return;
+    const t0 = Date.now();
     const now = Date.now();
     const nextActive: AlertLogItem[] = [];
+
+    log('ALERT_COMPUTE_START', { nodeId: selectedNode });
 
     // Heartbeat missed
     const lastHeartbeat = selectedNodeObj?.lastHeartbeat;
@@ -353,68 +446,185 @@ export default function AlertsScreen() {
       const value = parseFloat(currentSensors[key]);
       if (Number.isNaN(value)) return;
       const t = thresholds[key];
-      if (value > t.critical) nextActive.push({ id: makeId(), nodeId: selectedNode, nodeName: selectedNodeName, type, severity: 'CRITICAL', status: 'ACTIVE', message: `${label} critical: ${value} (critical > ${t.critical})`, value, createdAt: now });
-      else if (value > t.max) nextActive.push({ id: makeId(), nodeId: selectedNode, nodeName: selectedNodeName, type, severity: 'WARNING', status: 'ACTIVE', message: `${label} high: ${value} (max ${t.max})`, value, createdAt: now });
-      else if (value < t.min) nextActive.push({ id: makeId(), nodeId: selectedNode, nodeName: selectedNodeName, type, severity: 'WARNING', status: 'ACTIVE', message: `${label} low: ${value} (min ${t.min})`, value, createdAt: now });
+
+      if (value > t.critical) {
+        nextActive.push({
+          id: makeId(),
+          nodeId: selectedNode,
+          nodeName: selectedNodeName,
+          type,
+          severity: 'CRITICAL',
+          status: 'ACTIVE',
+          message: `${label} critical: ${value} (critical > ${t.critical})`,
+          value,
+          createdAt: now,
+        });
+      } else if (value > t.max) {
+        nextActive.push({
+          id: makeId(),
+          nodeId: selectedNode,
+          nodeName: selectedNodeName,
+          type,
+          severity: 'WARNING',
+          status: 'ACTIVE',
+          message: `${label} high: ${value} (max ${t.max})`,
+          value,
+          createdAt: now,
+        });
+      } else if (value < t.min) {
+        nextActive.push({
+          id: makeId(),
+          nodeId: selectedNode,
+          nodeName: selectedNodeName,
+          type,
+          severity: 'WARNING',
+          status: 'ACTIVE',
+          message: `${label} low: ${value} (min ${t.min})`,
+          value,
+          createdAt: now,
+        });
+      }
     };
 
     if (settings.enabled.TEMPERATURE) checkNumeric('TEMPERATURE', 'temperature', 'Temperature');
     if (settings.enabled.HUMIDITY) checkNumeric('HUMIDITY', 'humidity', 'Humidity');
     if (settings.enabled.PRESSURE) checkNumeric('PRESSURE', 'pressure', 'Pressure');
     if (settings.enabled.NOISE) checkNumeric('NOISE', 'noiseLevel', 'Noise level');
-    if (settings.enabled.LIGHT) (['lightClear', 'lightRed', 'lightGreen', 'lightBlue'] as const).forEach((k) => checkNumeric('LIGHT', k, `Light (${k.replace('light', '') || 'Clear'})`));
+    if (settings.enabled.LIGHT) {
+      (['lightClear', 'lightRed', 'lightGreen', 'lightBlue'] as const).forEach((k) =>
+        checkNumeric('LIGHT', k, `Light (${k.replace('light', '') || 'Clear'})`)
+      );
+    }
 
     setActiveAlerts(nextActive);
 
     // Update log
     if (!storageKeys.lastHashKey) return;
-    const hash = nextActive.map((a) => `${a.type}:${a.severity}:${a.message}`).sort().join('|');
-    const lastHash = await AsyncStorage.getItem(storageKeys.lastHashKey);
-    if (hash && hash !== lastHash) {
-      await AsyncStorage.setItem(storageKeys.lastHashKey, hash);
-      const merged = [...nextActive, ...alertLog].slice(0, 200);
-      setAlertLog(merged);
-      await persistLog(merged);
+    const hash = nextActive
+      .map((a) => `${a.type}:${a.severity}:${a.message}`)
+      .sort()
+      .join('|');
+
+    try {
+      const lastHash = await AsyncStorage.getItem(storageKeys.lastHashKey);
+      if (hash && hash !== lastHash) {
+        await AsyncStorage.setItem(storageKeys.lastHashKey, hash);
+        const merged = [...nextActive, ...alertLog].slice(0, 200);
+        setAlertLog(merged);
+        await persistLog(merged);
+        log('ALERT_LOG_UPDATED', { newActive: nextActive.length, mergedCount: merged.length });
+      } else {
+        log('ALERT_LOG_NO_CHANGE', { active: nextActive.length });
+      }
+    } catch (e) {
+      warn('ALERT_HASH_STORAGE_FAIL', e);
+    } finally {
+      log('ALERT_COMPUTE_DONE', { active: nextActive.length, ms: Date.now() - t0 });
     }
   };
 
   const refreshAll = async () => {
     if (!selectedNode) return;
+    const t0 = Date.now();
+
     setIsLoadingAlerts(true);
+    log('REFRESH_START', { nodeId: selectedNode });
+
     try {
       await fetchNodes();
       await fetchCurrentAndThresholds();
       await computeAlerts();
-    } finally { setIsLoadingAlerts(false); }
+      log('REFRESH_SUCCESS', { ms: Date.now() - t0 });
+    } catch (e) {
+      warn('REFRESH_FAIL', e);
+    } finally {
+      setIsLoadingAlerts(false);
+    }
   };
 
-  useEffect(() => { if (selectedNode) refreshAll(); }, [selectedNode]);
-  useEffect(() => { if (selectedNode) { computeAlerts(); persistSettings(settings); } }, [settings]);
+  useEffect(() => {
+    if (selectedNode) {
+      refreshAll();
+      log('NODE_SELECTED', selectedNode);
+    }
+  }, [selectedNode]);
+
+  useEffect(() => {
+    if (selectedNode) {
+      computeAlerts();
+      persistSettings(settings);
+      log('SETTINGS_CHANGED');
+    }
+  }, [settings]);
 
   const updateAlertStatus = async (alertId: string, status: AlertStatus) => {
+    log('ALERT_STATUS_UPDATE', { alertId, status });
     const next = alertLog.map((a) => (a.id === alertId ? { ...a, status } : a));
     setAlertLog(next);
     await persistLog(next);
   };
+
+  // Accessibility: announce new/critical alerts 
+  useEffect(() => {
+    // Avoid announcing on very first render
+    if (!isMountedRef.current) {
+      isMountedRef.current = true;
+      return;
+    }
+
+    const summary = activeAlerts
+      .map((a) => `${a.severity}:${a.type}:${a.message}`)
+      .sort()
+      .join('|');
+
+    if (!summary || summary === lastAnnouncedHashRef.current) return;
+    lastAnnouncedHashRef.current = summary;
+
+    const critical = activeAlerts.find((a) => a.severity === 'CRITICAL');
+    if (critical) {
+      const msg = `Critical alert for ${selectedNodeName}. ${critical.type}. ${critical.message}`;
+      AccessibilityInfo.announceForAccessibility?.(msg);
+      log('A11Y_ANNOUNCE_CRITICAL', msg);
+    } else if (activeAlerts.length > 0) {
+      const msg = `New alerts for ${selectedNodeName}. ${activeAlerts.length} active.`;
+      AccessibilityInfo.announceForAccessibility?.(msg);
+      log('A11Y_ANNOUNCE_ALERTS', msg);
+    }
+  }, [activeAlerts, selectedNodeName]);
 
   // -------------------- UI dynamic styles --------------------
   const dynamic = {
     container: { ...styles.container, backgroundColor: isDarkMode ? '#111827' : '#F9FAFB' },
     header: { ...styles.header, backgroundColor: isDarkMode ? '#1F2937' : '#FFFFFF', borderBottomColor: isDarkMode ? '#374151' : '#E5E7EB' },
     title: { ...styles.title, color: isDarkMode ? '#F9FAFB' : '#111827' },
-    subtitle: { ...styles.subtitle, color: isDarkMode ? '#9CA3AF' : '#6B7280' },
-    sectionLabel: { ...styles.sectionLabel, color: isDarkMode ? '#D1D5DB' : '#374151' },
+    subtitle: { ...styles.subtitle, color: isDarkMode ? '#D1D5DB' : '#6B7280' },
+    sectionLabel: { ...styles.sectionLabel, color: isDarkMode ? '#E5E7EB' : '#374151' },
     selector: { ...styles.selector, backgroundColor: isDarkMode ? '#1F2937' : '#FFFFFF', borderBottomColor: isDarkMode ? '#374151' : '#E5E7EB' },
-    nodeButton: { ...styles.nodeButton, backgroundColor: isDarkMode ? '#374151' : '#FFFFFF', borderColor: isDarkMode ? '#4B5563' : '#D1D5DB' },
-    nodeButtonActive: { ...styles.nodeButtonActive, backgroundColor: isDarkMode ? '#1E3A8A' : '#EFF6FF', borderColor: isDarkMode ? '#3B82F6' : '#2563EB' },
-    nodeButtonText: { ...styles.nodeButtonText, color: isDarkMode ? '#9CA3AF' : '#6B7280' },
-    nodeButtonTextActive: { ...styles.nodeButtonTextActive, color: isDarkMode ? '#93C5FD' : '#2563EB' },
+    nodeButton: { ...styles.nodeButton, backgroundColor: isDarkMode ? '#374151' : '#FFFFFF', borderColor: isDarkMode ? '#6B7280' : '#D1D5DB' },
+    nodeButtonActive: { ...styles.nodeButtonActive, backgroundColor: isDarkMode ? '#0B3A66' : '#EFF6FF', borderColor: isDarkMode ? '#60A5FA' : '#2563EB' },
+    nodeButtonText: { ...styles.nodeButtonText, color: isDarkMode ? '#E5E7EB' : '#4B5563' },
+    nodeButtonTextActive: { ...styles.nodeButtonTextActive, color: isDarkMode ? '#DBEAFE' : '#1D4ED8' },
+
     card: { ...styles.card, backgroundColor: isDarkMode ? '#1F2937' : '#FFFFFF', borderColor: isDarkMode ? '#374151' : '#E5E7EB' },
     cardTitle: { ...styles.cardTitle, color: isDarkMode ? '#F9FAFB' : '#111827' },
-    smallText: { ...styles.smallText, color: isDarkMode ? '#9CA3AF' : '#6B7280' },
-    input: { ...styles.input, backgroundColor: isDarkMode ? '#111827' : '#FFFFFF', borderColor: isDarkMode ? '#374151' : '#D1D5DB', color: isDarkMode ? '#F9FAFB' : '#111827' },
-    inputLabel: { ...styles.inputLabel, color: isDarkMode ? '#D1D5DB' : '#374151' },
+    smallText: { ...styles.smallText, color: isDarkMode ? '#D1D5DB' : '#6B7280' },
+
+    valueText: { ...styles.valueText, color: isDarkMode ? '#F9FAFB' : '#111827' },
+
+    input: {
+      ...styles.input,
+      backgroundColor: isDarkMode ? '#0B1220' : '#FFFFFF',
+      borderColor: isDarkMode ? '#4B5563' : '#D1D5DB',
+      color: isDarkMode ? '#F9FAFB' : '#111827',
+    },
+    inputLabel: { ...styles.inputLabel, color: isDarkMode ? '#E5E7EB' : '#374151' },
+
     divider: { ...styles.divider, backgroundColor: isDarkMode ? '#374151' : '#E5E7EB' },
+
+    // Text colours previously hard-coded (accessibility fix)
+    metaText: { color: isDarkMode ? '#D1D5DB' : '#6B7280' },
+    bodyText: { color: isDarkMode ? '#F9FAFB' : '#111827' },
+    mutedText: { color: isDarkMode ? '#D1D5DB' : '#6B7280' },
   };
 
   // -------------------- Render helpers --------------------
@@ -434,34 +644,56 @@ export default function AlertsScreen() {
     return [...alertLog].sort((a, b) => b.createdAt - a.createdAt);
   }, [alertLog]);
 
+  const a11yNodeName = selectedNodeName || 'selected node';
+
   return (
-    <ScrollView style={dynamic.container}>
+    <ScrollView
+      style={dynamic.container}
+      contentContainerStyle={{ paddingBottom: 24 }}
+      accessibilityLabel="Alerts screen"
+    >
       {/* Header */}
-      <View style={dynamic.header}>
+      <View style={dynamic.header} accessible accessibilityRole="header" accessibilityLabel="Alerts header">
         <View style={{ flex: 1 }}>
-          <Text style={dynamic.title}>Alerts</Text>
+          <Text style={dynamic.title} accessibilityRole="header">
+            Alerts
+          </Text>
           <Text style={dynamic.subtitle}>Warnings, history, and alert settings</Text>
         </View>
 
-        <TouchableOpacity onPress={toggleDarkMode} style={styles.iconButton}>
+        <TouchableOpacity
+          onPress={toggleDarkMode}
+          style={styles.iconButton}
+          accessibilityRole="button"
+          accessibilityLabel={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+          accessibilityHint="Toggles theme to improve readability"
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
           <Ionicons name={isDarkMode ? 'sunny' : 'moon'} size={22} color={isDarkMode ? '#FBBF24' : '#6B7280'} />
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={refreshAll} style={styles.iconButton}>
+        <TouchableOpacity
+          onPress={refreshAll}
+          style={styles.iconButton}
+          accessibilityRole="button"
+          accessibilityLabel="Refresh alerts"
+          accessibilityHint="Fetches latest node list and sensor data"
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
           <Ionicons name="refresh" size={22} color={isDarkMode ? '#93C5FD' : '#2563EB'} />
         </TouchableOpacity>
       </View>
 
       {/* Node selector */}
-      <View style={dynamic.selector}>
+      <View style={dynamic.selector} accessibilityLabel="Node selector">
         <Text style={dynamic.sectionLabel}>Select Node</Text>
 
         {isLoadingNodes ? (
           <View style={{ paddingVertical: 12 }}>
-            <ActivityIndicator />
+            <ActivityIndicator accessibilityLabel="Loading nodes" accessibilityRole="progressbar" />
           </View>
         ) : (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} accessibilityLabel="Scrollable list of nodes">
             {nodes.map((node) => {
               const id = safeNodeId(node);
               if (!id) return null;
@@ -471,12 +703,18 @@ export default function AlertsScreen() {
               return (
                 <TouchableOpacity
                   key={id}
-                  onPress={() => setSelectedNode(id)}
+                  onPress={() => {
+                    setSelectedNode(id);
+                    log('NODE_TAP_SELECTED', id);
+                  }}
                   style={[dynamic.nodeButton, isSelected && dynamic.nodeButtonActive]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Select node ${name}`}
+                  accessibilityHint={isSelected ? 'Currently selected' : 'Loads alerts and history for this node'}
+                  accessibilityState={{ selected: isSelected }}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                 >
-                  <Text style={[dynamic.nodeButtonText, isSelected && dynamic.nodeButtonTextActive]}>
-                    {name}
-                  </Text>
+                  <Text style={[dynamic.nodeButtonText, isSelected && dynamic.nodeButtonTextActive]}>{name}</Text>
                 </TouchableOpacity>
               );
             })}
@@ -485,7 +723,11 @@ export default function AlertsScreen() {
       </View>
 
       {/* Quick health card */}
-      <View style={dynamic.card}>
+      <View
+        style={dynamic.card}
+        accessible
+        accessibilityLabel={`Node status for ${a11yNodeName}`}
+      >
         <View style={styles.cardHeader}>
           <Ionicons name="information-circle-outline" size={22} color={isDarkMode ? '#60A5FA' : '#2563EB'} />
           <Text style={dynamic.cardTitle}>Node Status</Text>
@@ -493,24 +735,28 @@ export default function AlertsScreen() {
 
         <View style={styles.row}>
           <Text style={dynamic.smallText}>Node</Text>
-          <Text style={styles.valueText}>{selectedNodeName}</Text>
+          <Text style={dynamic.valueText}>{selectedNodeName}</Text>
         </View>
 
         <View style={styles.row}>
           <Text style={dynamic.smallText}>Last heartbeat</Text>
-          <Text style={styles.valueText}>
+          <Text style={dynamic.valueText}>
             {selectedNodeObj?.lastHeartbeat ? new Date(selectedNodeObj.lastHeartbeat).toLocaleString() : 'N/A'}
           </Text>
         </View>
 
         <View style={styles.row}>
           <Text style={dynamic.smallText}>Last seen</Text>
-          <Text style={styles.valueText}>{formatLastSeen(selectedNodeObj?.lastHeartbeat)}</Text>
+          <Text style={dynamic.valueText}>{formatLastSeen(selectedNodeObj?.lastHeartbeat)}</Text>
         </View>
       </View>
 
       {/* Active alerts */}
-      <View style={dynamic.card}>
+      <View
+        style={dynamic.card}
+        accessibilityLabel={`Active alerts for ${a11yNodeName}`}
+        accessibilityLiveRegion={Platform.OS === 'android' ? 'polite' : undefined}
+      >
         <View style={styles.cardHeader}>
           <Ionicons name="warning-outline" size={22} color={isDarkMode ? '#FBBF24' : '#F59E0B'} />
           <Text style={dynamic.cardTitle}>Active Alerts</Text>
@@ -518,7 +764,7 @@ export default function AlertsScreen() {
 
         {isLoadingAlerts ? (
           <View style={{ paddingVertical: 14 }}>
-            <ActivityIndicator />
+            <ActivityIndicator accessibilityLabel="Loading alerts" accessibilityRole="progressbar" />
             <Text style={[styles.centerText, dynamic.smallText]}>Checking latest readings…</Text>
           </View>
         ) : activeAlerts.length === 0 ? (
@@ -526,35 +772,57 @@ export default function AlertsScreen() {
         ) : (
           activeAlerts.map((a) => {
             const sev = badgeColors(a.severity, isDarkMode);
+
+            const cardLabel = `${a.severity} ${a.type}. ${a.message}. Created at ${new Date(
+              a.createdAt
+            ).toLocaleTimeString()}.`;
+
             return (
-              <View key={a.id} style={[styles.alertCard, { borderColor: sev.border }]}>
+              <View
+                key={a.id}
+                style={[styles.alertCard, { borderColor: sev.border }]}
+                accessible
+                accessibilityLabel={cardLabel}
+              >
                 <View style={styles.alertTopRow}>
                   <View style={[styles.badge, { backgroundColor: sev.bg, borderColor: sev.border }]}>
                     <Text style={[styles.badgeText, { color: sev.text }]}>{a.severity}</Text>
                   </View>
-                  <Text style={styles.alertType}>{a.type}</Text>
-                  <Text style={styles.alertTime}>{new Date(a.createdAt).toLocaleTimeString()}</Text>
+                  <Text style={[styles.alertType, dynamic.metaText]}>{a.type}</Text>
+                  <Text style={[styles.alertTime, dynamic.metaText]}>{new Date(a.createdAt).toLocaleTimeString()}</Text>
                 </View>
-                <Text style={styles.alertMessage}>{a.message}</Text>
+
+                <Text style={[styles.alertMessage, dynamic.bodyText]}>{a.message}</Text>
 
                 <View style={styles.actionRow}>
                   <TouchableOpacity
-                    style={[styles.smallButton, { backgroundColor: '#2563EB' }]}
+                    style={[styles.smallButton, styles.primaryButton]}
                     onPress={() => {
-                      // Mark the latest matching item in log as attended (if exists)
                       const match = displayedLog.find((x) => x.type === a.type && x.message === a.message);
-                      if (match) updateAlertStatus(match.id, 'ATTENDED');
+                      if (match) {
+                        updateAlertStatus(match.id, 'ATTENDED');
+                        AccessibilityInfo.announceForAccessibility?.('Alert marked as attended');
+                      }
                     }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Mark alert as attended"
+                    accessibilityHint="Updates the alert status in the log"
                   >
                     <Text style={styles.smallButtonText}>Mark Attended</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
-                    style={[styles.smallButton, { backgroundColor: '#059669' }]}
+                    style={[styles.smallButton, styles.successButton]}
                     onPress={() => {
                       const match = displayedLog.find((x) => x.type === a.type && x.message === a.message);
-                      if (match) updateAlertStatus(match.id, 'RESOLVED');
+                      if (match) {
+                        updateAlertStatus(match.id, 'RESOLVED');
+                        AccessibilityInfo.announceForAccessibility?.('Alert resolved');
+                      }
                     }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Resolve alert"
+                    accessibilityHint="Marks this alert as resolved in the log"
                   >
                     <Text style={styles.smallButtonText}>Resolve</Text>
                   </TouchableOpacity>
@@ -575,7 +843,7 @@ export default function AlertsScreen() {
       </View>
 
       {/* Alert log */}
-      <View style={dynamic.card}>
+      <View style={dynamic.card} accessibilityLabel={`Alert log for ${a11yNodeName}`}>
         <View style={styles.cardHeader}>
           <Ionicons name="list-outline" size={22} color={isDarkMode ? '#60A5FA' : '#2563EB'} />
           <Text style={dynamic.cardTitle}>Alert Log</Text>
@@ -587,8 +855,16 @@ export default function AlertsScreen() {
           displayedLog.slice(0, 40).map((a) => {
             const sev = badgeColors(a.severity, isDarkMode);
             const st = statusChip(a.status, isDarkMode);
+
+            const rowLabel = `Logged alert. ${a.severity}. Status ${a.status}. ${a.type}. ${a.message}.`;
+
             return (
-              <View key={a.id} style={[styles.logRow, { borderColor: isDarkMode ? '#374151' : '#E5E7EB' }]}>
+              <View
+                key={a.id}
+                style={[styles.logRow, { borderColor: isDarkMode ? '#374151' : '#E5E7EB' }]}
+                accessible
+                accessibilityLabel={rowLabel}
+              >
                 <View style={styles.logHeader}>
                   <View style={[styles.badge, { backgroundColor: sev.bg, borderColor: sev.border }]}>
                     <Text style={[styles.badgeText, { color: sev.text }]}>{a.severity}</Text>
@@ -598,25 +874,45 @@ export default function AlertsScreen() {
                     <Text style={[styles.badgeText, { color: st.text }]}>{a.status}</Text>
                   </View>
 
-                  <Text style={styles.logMeta}>{new Date(a.createdAt).toLocaleString()}</Text>
+                  <Text style={[styles.logMeta, dynamic.metaText]}>{new Date(a.createdAt).toLocaleString()}</Text>
                 </View>
 
-                <Text style={styles.logType}>{a.type}</Text>
-                <Text style={styles.logMessage}>{a.message}</Text>
+                <Text style={[styles.logType, dynamic.metaText]}>{a.type}</Text>
+                <Text style={[styles.logMessage, dynamic.bodyText]}>{a.message}</Text>
 
                 <View style={styles.actionRow}>
                   <TouchableOpacity
                     disabled={a.status === 'RESOLVED'}
-                    style={[styles.smallButton, { backgroundColor: '#2563EB', opacity: a.status === 'RESOLVED' ? 0.5 : 1 }]}
-                    onPress={() => updateAlertStatus(a.id, 'ATTENDED')}
+                    style={[
+                      styles.smallButton,
+                      styles.primaryButton,
+                      { opacity: a.status === 'RESOLVED' ? 0.5 : 1 },
+                    ]}
+                    onPress={() => {
+                      updateAlertStatus(a.id, 'ATTENDED');
+                      AccessibilityInfo.announceForAccessibility?.('Marked as attended');
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Mark log entry as attended"
+                    accessibilityState={{ disabled: a.status === 'RESOLVED' }}
                   >
                     <Text style={styles.smallButtonText}>Attended</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
                     disabled={a.status === 'RESOLVED'}
-                    style={[styles.smallButton, { backgroundColor: '#059669', opacity: a.status === 'RESOLVED' ? 0.5 : 1 }]}
-                    onPress={() => updateAlertStatus(a.id, 'RESOLVED')}
+                    style={[
+                      styles.smallButton,
+                      styles.successButton,
+                      { opacity: a.status === 'RESOLVED' ? 0.5 : 1 },
+                    ]}
+                    onPress={() => {
+                      updateAlertStatus(a.id, 'RESOLVED');
+                      AccessibilityInfo.announceForAccessibility?.('Marked as resolved');
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Mark log entry as resolved"
+                    accessibilityState={{ disabled: a.status === 'RESOLVED' }}
                   >
                     <Text style={styles.smallButtonText}>Resolved</Text>
                   </TouchableOpacity>
@@ -628,7 +924,7 @@ export default function AlertsScreen() {
       </View>
 
       {/* Settings */}
-      <View style={dynamic.card}>
+      <View style={dynamic.card} accessibilityLabel={`Alert settings for ${a11yNodeName}`}>
         <View style={styles.cardHeader}>
           <Ionicons name="options-outline" size={22} color={isDarkMode ? '#60A5FA' : '#2563EB'} />
           <Text style={dynamic.cardTitle}>Alert Settings</Text>
@@ -641,7 +937,7 @@ export default function AlertsScreen() {
           <View key={row.type} style={styles.toggleRow}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
               <Ionicons name={row.icon} size={18} color={isDarkMode ? '#93C5FD' : '#2563EB'} />
-              <Text style={[styles.toggleLabel, { color: isDarkMode ? '#F9FAFB' : '#111827' }]}>{row.label}</Text>
+              <Text style={[styles.toggleLabel, dynamic.bodyText]}>{row.label}</Text>
             </View>
             <Switch
               value={!!settings.enabled[row.type]}
@@ -651,6 +947,8 @@ export default function AlertsScreen() {
                   enabled: { ...prev.enabled, [row.type]: v },
                 }))
               }
+              accessibilityLabel={`Toggle ${row.label}`}
+              accessibilityHint="Enables or disables this alert rule"
             />
           </View>
         ))}
@@ -660,26 +958,29 @@ export default function AlertsScreen() {
           <View style={dynamic.divider} />
 
           <View style={styles.toggleRow}>
-            <Text style={[styles.toggleLabel, { color: isDarkMode ? '#F9FAFB' : '#111827' }]}>Flash node on critical</Text>
+            <Text style={[styles.toggleLabel, dynamic.bodyText]}>Flash node on critical</Text>
             <Switch
               value={settings.actions.flashOnCritical}
               onValueChange={(v) => setSettings((p) => ({ ...p, actions: { ...p.actions, flashOnCritical: v } }))}
+              accessibilityLabel="Toggle flash on critical"
             />
           </View>
 
           <View style={styles.toggleRow}>
-            <Text style={[styles.toggleLabel, { color: isDarkMode ? '#F9FAFB' : '#111827' }]}>Sound node on critical</Text>
+            <Text style={[styles.toggleLabel, dynamic.bodyText]}>Sound node on critical</Text>
             <Switch
               value={settings.actions.soundOnCritical}
               onValueChange={(v) => setSettings((p) => ({ ...p, actions: { ...p.actions, soundOnCritical: v } }))}
+              accessibilityLabel="Toggle sound on critical"
             />
           </View>
 
           <View style={styles.toggleRow}>
-            <Text style={[styles.toggleLabel, { color: isDarkMode ? '#F9FAFB' : '#111827' }]}>Enable fan on critical</Text>
+            <Text style={[styles.toggleLabel, dynamic.bodyText]}>Enable fan on critical</Text>
             <Switch
               value={settings.actions.fanOnCritical}
               onValueChange={(v) => setSettings((p) => ({ ...p, actions: { ...p.actions, fanOnCritical: v } }))}
+              accessibilityLabel="Toggle fan on critical"
             />
           </View>
 
@@ -701,6 +1002,8 @@ export default function AlertsScreen() {
               const n = clampNum(parseInt(t || '0', 10) || 0, 0, 999);
               setSettings((p) => ({ ...p, maxPeoplePerRoom: n }));
             }}
+            accessibilityLabel="Maximum people per room"
+            accessibilityHint="Sets the occupancy limit used by the occupancy alert rule"
           />
 
           <Text style={[styles.hint, dynamic.smallText]}>
@@ -721,6 +1024,8 @@ export default function AlertsScreen() {
               const n = clampNum(parseInt(t || '0', 10) || 0, 10, 3600);
               setSettings((p) => ({ ...p, heartbeatTimeoutSeconds: n }));
             }}
+            accessibilityLabel="Heartbeat timeout in seconds"
+            accessibilityHint="Controls how long without a heartbeat triggers a critical alert"
           />
 
           <Text style={dynamic.inputLabel}>Battery low threshold (%)</Text>
@@ -732,21 +1037,32 @@ export default function AlertsScreen() {
               const n = clampNum(parseInt(t || '0', 10) || 0, 0, 100);
               setSettings((p) => ({ ...p, batteryLowPercent: n }));
             }}
+            accessibilityLabel="Battery low threshold percentage"
+            accessibilityHint="Controls when the battery low alert triggers"
           />
         </View>
 
         <TouchableOpacity
           onPress={async () => {
             if (!selectedNode) return;
+            log('CLEAR_LOG_START', selectedNode);
+
             setAlertLog([]);
             setActiveAlerts([]);
             try {
               if (storageKeys.logKey) await AsyncStorage.removeItem(storageKeys.logKey);
               if (storageKeys.lastHashKey) await AsyncStorage.removeItem(storageKeys.lastHashKey);
-            } catch {}
+            } catch (e) {
+              warn('CLEAR_LOG_FAIL', e);
+            }
+            AccessibilityInfo.announceForAccessibility?.('Alert log cleared');
             Alert.alert('Cleared', 'Alert log cleared for this node.');
+            log('CLEAR_LOG_DONE');
           }}
           style={[styles.clearButton]}
+          accessibilityRole="button"
+          accessibilityLabel="Clear alert log"
+          accessibilityHint="Removes stored alert history for the selected node"
         >
           <Ionicons name="trash-outline" size={18} color="#FFFFFF" />
           <Text style={styles.clearButtonText}>Clear Alert Log</Text>
@@ -769,17 +1085,26 @@ const styles = StyleSheet.create({
   title: { fontSize: 24, fontWeight: 'bold' },
   subtitle: { fontSize: 14, marginTop: 4 },
 
-  iconButton: { padding: 8, marginLeft: 6 },
+  iconButton: {
+    padding: 10, // slightly larger touch target
+    marginLeft: 6,
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
   selector: { padding: 20, borderBottomWidth: 1 },
   sectionLabel: { fontSize: 14, fontWeight: '700', marginBottom: 10 },
 
   nodeButton: {
     paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 8,
+    paddingVertical: 12,
+    borderRadius: 10,
     borderWidth: 2,
     marginRight: 12,
+    minHeight: 44, // accessibility: target size
+    justifyContent: 'center',
   },
   nodeButtonActive: {},
   nodeButtonText: { fontSize: 14, fontWeight: '600' },
@@ -802,7 +1127,7 @@ const styles = StyleSheet.create({
   smallText: { fontSize: 13 },
 
   row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 },
-  valueText: { fontSize: 14, fontWeight: '600' },
+  valueText: { fontSize: 14, fontWeight: '700' },
 
   divider: { height: 1, width: '100%', marginTop: 6 },
 
@@ -817,9 +1142,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  alertType: { fontSize: 12, fontWeight: '800', color: '#6B7280' },
-  alertTime: { marginLeft: 'auto', fontSize: 12, color: '#6B7280' },
-  alertMessage: { marginTop: 8, fontSize: 14, fontWeight: '600', color: '#111827' },
+  alertType: { fontSize: 12, fontWeight: '800' },
+  alertTime: { marginLeft: 'auto', fontSize: 12 },
+  alertMessage: { marginTop: 8, fontSize: 14, fontWeight: '700' },
 
   badge: {
     paddingHorizontal: 10,
@@ -836,12 +1161,15 @@ const styles = StyleSheet.create({
   },
   smallButton: {
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 12,
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
     flex: 1,
+    minHeight: 44, // accessibility target size
   },
+  primaryButton: { backgroundColor: '#1D4ED8' }, // higher contrast than #2563EB
+  successButton: { backgroundColor: '#047857' }, // higher contrast than #059669
   smallButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 13 },
 
   hint: { marginTop: 8, fontSize: 12, lineHeight: 16 },
@@ -853,9 +1181,9 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   logHeader: { flexDirection: 'row', gap: 8, alignItems: 'center' },
-  logMeta: { marginLeft: 'auto', fontSize: 12, color: '#6B7280' },
-  logType: { marginTop: 8, fontSize: 12, fontWeight: '900', color: '#6B7280' },
-  logMessage: { marginTop: 4, fontSize: 14, fontWeight: '600', color: '#111827' },
+  logMeta: { marginLeft: 'auto', fontSize: 12 },
+  logType: { marginTop: 8, fontSize: 12, fontWeight: '900' },
+  logMessage: { marginTop: 4, fontSize: 14, fontWeight: '700' },
 
   toggleRow: {
     flexDirection: 'row',
@@ -870,23 +1198,23 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 10,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 12,
     fontSize: 14,
+    minHeight: 44,
   },
 
   clearButton: {
     marginTop: 18,
-    backgroundColor: '#DC2626',
+    backgroundColor: '#B91C1C', // higher contrast red
     paddingVertical: 12,
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
     gap: 8,
+    minHeight: 44,
   },
   clearButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 14 },
 
   centerText: { textAlign: 'center', marginTop: 10 },
 });
-
-
