@@ -5,6 +5,8 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -75,6 +77,78 @@ export default function ConfigScreen() {
   const [isLoadingConfig, setIsLoadingConfig] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
+  // ── Create Admin Modal state ──────────────────────────────────────
+  const [showCreateAdmin, setShowCreateAdmin] = useState(false);
+  const [newUsername, setNewUsername] = useState('');
+  const [newEmail, setNewEmail] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [newConfirmPassword, setNewConfirmPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showNewConfirmPassword, setShowNewConfirmPassword] = useState(false);
+  const [isCreatingAdmin, setIsCreatingAdmin] = useState(false);
+
+  const resetCreateAdminForm = () => {
+    setNewUsername('');
+    setNewEmail('');
+    setNewPassword('');
+    setNewConfirmPassword('');
+    setShowNewPassword(false);
+    setShowNewConfirmPassword(false);
+  };
+
+  const validateEmail = (email: string): boolean => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
+
+  const handleCreateAdmin = async () => {
+    if (!newUsername.trim() || !newPassword.trim() || !newConfirmPassword.trim()) {
+      Alert.alert('Error', 'Please fill in all required fields');
+      return;
+    }
+    if (newUsername.trim().length < 3) {
+      Alert.alert('Error', 'Username must be at least 3 characters');
+      return;
+    }
+    if (newEmail.trim() && !validateEmail(newEmail)) {
+      Alert.alert('Error', 'Please enter a valid email address');
+      return;
+    }
+    if (newPassword.length < 8) {
+      Alert.alert('Error', 'Password must be at least 8 characters');
+      return;
+    }
+    if (newPassword !== newConfirmPassword) {
+      Alert.alert('Error', 'Passwords do not match');
+      return;
+    }
+
+    setIsCreatingAdmin(true);
+    try {
+      const response = await ApiService.createAccount({
+        username: newUsername.trim(),
+        password: newPassword,
+        email: newEmail.trim() || undefined,
+      });
+
+      if (response.success) {
+        Alert.alert(
+          'Admin Created',
+          `Account for "${newUsername.trim()}" was created successfully.`,
+          [{ text: 'OK', onPress: () => { setShowCreateAdmin(false); resetCreateAdminForm(); } }]
+        );
+      } else {
+        Alert.alert('Failed', response.message || 'Could not create admin account');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+      console.error('Create admin error:', error);
+    } finally {
+      setIsCreatingAdmin(false);
+    }
+  };
+  // ─────────────────────────────────────────────────────────────────
+
   // Auth guard
   useEffect(() => {
     (async () => {
@@ -120,7 +194,6 @@ export default function ConfigScreen() {
       }
 
       const data = await res.json();
-      console.log(data);
       const rawList: NodeSummary[] = Array.isArray(data)
         ? data
         : data.nodes || data.data || [];
@@ -160,9 +233,7 @@ export default function ConfigScreen() {
     setDraft({});
 
     try {
-      const url = `${API_BASE_URL}${API_ENDPOINTS.NODE_CONFIG}?nodeId=${encodeURIComponent(
-        nodeId
-      )}`;
+      const url = `${API_BASE_URL}${API_ENDPOINTS.NODE_CONFIG}?nodeId=${encodeURIComponent(nodeId)}`;
       const res = await authenticatedFetch(url);
 
       if (!res.ok) {
@@ -202,13 +273,9 @@ export default function ConfigScreen() {
 
     Object.keys(draft).forEach((key) => {
       const original = nodeConfig[key];
-      const originalStr =
-        original === null || original === undefined ? '' : String(original);
+      const originalStr = original === null || original === undefined ? '' : String(original);
       const newStr = draft[key] ?? '';
-
-      if (newStr !== originalStr) {
-        patch[key] = newStr;
-      }
+      if (newStr !== originalStr) patch[key] = newStr;
     });
 
     return patch;
@@ -226,9 +293,7 @@ export default function ConfigScreen() {
 
     setIsSaving(true);
     try {
-      const url = `${API_BASE_URL}${API_ENDPOINTS.NODE_CONFIG}?nodeId=${encodeURIComponent(
-        selectedNode
-      )}`;
+      const url = `${API_BASE_URL}${API_ENDPOINTS.NODE_CONFIG}?nodeId=${encodeURIComponent(selectedNode)}`;
       const res = await authenticatedFetch(url, {
         method: 'POST',
         body: JSON.stringify(patch),
@@ -248,7 +313,7 @@ export default function ConfigScreen() {
     }
   };
 
-  // ---------- UI ----------
+  // ---------- Dynamic theme styles ----------
 
   const dynamic = {
     container: { ...styles.container, backgroundColor: isDarkMode ? '#111827' : '#F9FAFB' },
@@ -267,10 +332,18 @@ export default function ConfigScreen() {
     input: { ...styles.input, backgroundColor: isDarkMode ? '#111827' : '#FFFFFF', borderColor: isDarkMode ? '#374151' : '#D1D5DB', color: isDarkMode ? '#F9FAFB' : '#111827' },
     inputLabel: { ...styles.inputLabel, color: isDarkMode ? '#D1D5DB' : '#374151' },
     divider: { ...styles.divider, backgroundColor: isDarkMode ? '#374151' : '#E5E7EB' },
+    // Modal-specific
+    modalOverlay: { ...styles.modalOverlay },
+    modalContainer: { ...styles.modalContainer, backgroundColor: isDarkMode ? '#1F2937' : '#FFFFFF' },
+    modalTitle: { ...styles.modalTitle, color: isDarkMode ? '#F9FAFB' : '#111827' },
+    modalSubtitle: { ...styles.modalSubtitle, color: isDarkMode ? '#9CA3AF' : '#6B7280' },
+    modalInput: { ...styles.modalInput, backgroundColor: isDarkMode ? '#111827' : '#F9FAFB', borderColor: isDarkMode ? '#374151' : '#D1D5DB', color: isDarkMode ? '#F9FAFB' : '#111827' },
+    modalLabel: { ...styles.modalLabel, color: isDarkMode ? '#D1D5DB' : '#374151' },
+    modalPasswordContainer: { ...styles.modalPasswordContainer, backgroundColor: isDarkMode ? '#111827' : '#F9FAFB', borderColor: isDarkMode ? '#374151' : '#D1D5DB' },
+    modalPasswordInput: { ...styles.modalPasswordInput, color: isDarkMode ? '#F9FAFB' : '#111827' },
+    modalDivider: { ...styles.modalDivider, backgroundColor: isDarkMode ? '#374151' : '#E5E7EB' },
   };
 
-
-  // Pick a curated list of fields (instead of dumping everything)
   const FIELD_GROUPS: { title: string; fields: { key: string; label: string; secure?: boolean; keyboard?: any }[] }[] = [
     {
       title: 'Node Identity',
@@ -291,7 +364,6 @@ export default function ConfigScreen() {
       fields: [
         { key: 'mqtt_server', label: 'MQTT Server' },
         { key: 'mqtt_port', label: 'MQTT Port', keyboard: 'numeric' },
-        // { key: 'mqtt_client_id', label: 'MQTT Client ID' },
         { key: 'mqtt_username', label: 'MQTT Username' },
         { key: 'mqtt_password', label: 'MQTT Password', secure: true },
       ],
@@ -299,7 +371,6 @@ export default function ConfigScreen() {
     {
       title: 'Beacon',
       fields: [
-        // IMPORTANT: backend special-cases these dotted keys for iBeacon fields
         { key: 'beacon_majorId', label: 'Beacon Major ID', keyboard: 'numeric' },
         { key: 'beacon_minorId', label: 'Beacon Minor ID', keyboard: 'numeric' },
       ],
@@ -307,178 +378,369 @@ export default function ConfigScreen() {
   ];
 
   return (
-    <ScrollView style={dynamic.container}>
-      {/* Header */}
-      <View style={dynamic.header}>
-        <View style={{ flex: 1 }}>
-          <Text style={dynamic.title}>Admin</Text>
-          <Text style={dynamic.subtitle}>Configure nodes + view system health</Text>
-        </View>
+    <>
+      <ScrollView style={dynamic.container}>
+        {/* Header */}
+        <View style={dynamic.header}>
+          <View style={{ flex: 1 }}>
+            <Text style={dynamic.title}>Admin</Text>
+            <Text style={dynamic.subtitle}>Configure nodes + view system health</Text>
+          </View>
 
-        {/* MAP EDITOR BUTTON */}
-        <TouchableOpacity 
-          onPress={() => router.push('/AdminMapEditor')} // Assuming the route is /AdminMapEditor or /screens/AdminMapEditor based on your structure
-          style={styles.iconButton}
-        >
-          <Ionicons name="map-outline" size={22} color={isDarkMode ? '#FBBF24' : '#6B7280'} />
-        </TouchableOpacity>
+          {/* Create Admin Account Button */}
+          <TouchableOpacity
+            onPress={() => setShowCreateAdmin(true)}
+            style={styles.iconButton}
+          >
+            <Ionicons name="person-add-outline" size={22} color={isDarkMode ? '#34D399' : '#059669'} />
+          </TouchableOpacity>
 
-        <TouchableOpacity onPress={toggleDarkMode} style={styles.iconButton}>
-          <Ionicons name={isDarkMode ? 'sunny' : 'moon'} size={22} color={isDarkMode ? '#FBBF24' : '#6B7280'} />
-        </TouchableOpacity>
+          {/* Map Editor Button */}
+          <TouchableOpacity
+            onPress={() => router.push('/AdminMapEditor')}
+            style={styles.iconButton}
+          >
+            <Ionicons name="map-outline" size={22} color={isDarkMode ? '#FBBF24' : '#6B7280'} />
+          </TouchableOpacity>
 
-        <TouchableOpacity onPress={fetchNodes} style={styles.iconButton}>
-          <Ionicons name="refresh" size={22} color={isDarkMode ? '#93C5FD' : '#2563EB'} />
-        </TouchableOpacity>
+          <TouchableOpacity onPress={toggleDarkMode} style={styles.iconButton}>
+            <Ionicons name={isDarkMode ? 'sunny' : 'moon'} size={22} color={isDarkMode ? '#FBBF24' : '#6B7280'} />
+          </TouchableOpacity>
 
-        {/* LOGOUT BUTTON */}
-        <TouchableOpacity
-          onPress={() => {
-            Alert.alert(
-              'Logout',
-              'Are you sure you want to logout?',
-              [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                  text: 'Logout',
-                  style: 'destructive',
-                  onPress: async () => {
-                    await ApiService.logout();
-                    router.replace('/(tabs)/login');
+          <TouchableOpacity onPress={fetchNodes} style={styles.iconButton}>
+            <Ionicons name="refresh" size={22} color={isDarkMode ? '#93C5FD' : '#2563EB'} />
+          </TouchableOpacity>
+
+          {/* Logout Button */}
+          <TouchableOpacity
+            onPress={() => {
+              Alert.alert(
+                'Logout',
+                'Are you sure you want to logout?',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Logout',
+                    style: 'destructive',
+                    onPress: async () => {
+                      await ApiService.logout();
+                      router.replace('/(tabs)/login');
+                    },
                   },
-                },
-              ]
-            );
-          }}
-          style={styles.iconButton}
-        >
-          <Ionicons name="log-out-outline" size={22} color={isDarkMode ? '#F87171' : '#DC2626'} />
-        </TouchableOpacity>
-      </View>
-
-      {/* Node selector */}
-      <View style={dynamic.selector}>
-        <Text style={dynamic.sectionLabel}>Select Node</Text>
-
-        {isLoadingNodes ? (
-          <View style={{ paddingVertical: 12 }}>
-            <ActivityIndicator />
-          </View>
-        ) : (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {nodes.map((node) => {
-              const id = safeNodeId(node);
-              if (!id) return null;
-              const name = node.friendlyName || id;
-              const isSelected = selectedNode === id;
-
-              return (
-                <TouchableOpacity
-                  key={id}
-                  onPress={() => setSelectedNode(id)}
-                  style={[dynamic.nodeButton, isSelected && dynamic.nodeButtonActive]}
-                >
-                  <Text style={[dynamic.nodeButtonText, isSelected && dynamic.nodeButtonTextActive]}>
-                    {name}
-                  </Text>
-                </TouchableOpacity>
+                ]
               );
-            })}
-          </ScrollView>
-        )}
-      </View>
-
-      {/* Health card */}
-      <View style={dynamic.card}>
-        <View style={styles.cardHeader}>
-          <Ionicons name="pulse" size={22} color={isDarkMode ? '#60A5FA' : '#2563EB'} />
-          <Text style={dynamic.cardTitle}>System Health</Text>
+            }}
+            style={styles.iconButton}
+          >
+            <Ionicons name="log-out-outline" size={22} color={isDarkMode ? '#F87171' : '#DC2626'} />
+          </TouchableOpacity>
         </View>
 
-        <View style={styles.healthRow}>
-          <Text style={dynamic.smallText}>Battery</Text>
-          <Text style={[styles.healthValue, { color: batteryColor(selectedNodeObj?.battery) }]}>
-            {selectedNodeObj?.battery !== undefined && selectedNodeObj?.battery !== null
-              ? `${selectedNodeObj.battery}%`
-              : 'Unknown'}
-          </Text>
+        {/* Node selector */}
+        <View style={dynamic.selector}>
+          <Text style={dynamic.sectionLabel}>Select Node</Text>
+
+          {isLoadingNodes ? (
+            <View style={{ paddingVertical: 12 }}>
+              <ActivityIndicator />
+            </View>
+          ) : (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {nodes.map((node) => {
+                const id = safeNodeId(node);
+                if (!id) return null;
+                const name = node.friendlyName || id;
+                const isSelected = selectedNode === id;
+
+                return (
+                  <TouchableOpacity
+                    key={id}
+                    onPress={() => setSelectedNode(id)}
+                    style={[dynamic.nodeButton, isSelected && dynamic.nodeButtonActive]}
+                  >
+                    <Text style={[dynamic.nodeButtonText, isSelected && dynamic.nodeButtonTextActive]}>
+                      {name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          )}
         </View>
 
-        <View style={styles.healthRow}>
-          <Text style={dynamic.smallText}>Last heartbeat</Text>
-          <Text style={styles.healthValue}>
-            {selectedNodeObj?.lastHeartbeat ? new Date(selectedNodeObj.lastHeartbeat).toLocaleString() : 'N/A'}
-          </Text>
-        </View>
-
-        <View style={styles.healthRow}>
-          <Text style={dynamic.smallText}>Last seen</Text>
-          <Text style={styles.healthValue}>{formatLastSeen(selectedNodeObj?.lastHeartbeat)}</Text>
-        </View>
-      </View>
-
-      {/* Config editor */}
-      <View style={dynamic.card}>
-        <View style={styles.cardHeader}>
-          <Ionicons name="construct" size={22} color={isDarkMode ? '#60A5FA' : '#2563EB'} />
-          <Text style={dynamic.cardTitle}>Node Configuration</Text>
-        </View>
-
-        {isLoadingConfig ? (
-          <View style={{ paddingVertical: 20 }}>
-            <ActivityIndicator />
-            <Text style={[styles.centerText, dynamic.smallText]}>Loading configuration…</Text>
+        {/* Health card */}
+        <View style={dynamic.card}>
+          <View style={styles.cardHeader}>
+            <Ionicons name="pulse" size={22} color={isDarkMode ? '#60A5FA' : '#2563EB'} />
+            <Text style={dynamic.cardTitle}>System Health</Text>
           </View>
-        ) : !nodeConfig ? (
-          <Text style={dynamic.smallText}>Select a node to view configuration.</Text>
-        ) : (
-          <>
-            {FIELD_GROUPS.map((group) => (
-              <View key={group.title} style={{ marginTop: 14 }}>
-                <Text style={dynamic.sectionLabel}>{group.title}</Text>
-                <View style={dynamic.divider} />
 
-                {group.fields.map((f) => {
-                  const isReadOnly = f.key === 'node_id';
-                  const value = draft[f.key] ?? '';
-
-                  return (
-                    <View key={f.key} style={{ marginTop: 10 }}>
-                      <Text style={dynamic.inputLabel}>{f.label}</Text>
-                      <TextInput
-                        value={value}
-                        editable={!isReadOnly && !isSaving}
-                        onChangeText={(t) => setDraft((prev) => ({ ...prev, [f.key]: t }))}
-                        style={[
-                          dynamic.input,
-                          isReadOnly ? { opacity: 0.6 } : null,
-                        ]}
-                        secureTextEntry={!!f.secure}
-                        keyboardType={f.keyboard || 'default'}
-                        autoCapitalize="none"
-                      />
-                    </View>
-                  );
-                })}
-              </View>
-            ))}
-
-            <TouchableOpacity
-              onPress={onSave}
-              disabled={isSaving}
-              style={[styles.saveButton, isSaving ? { opacity: 0.7 } : null]}
-            >
-              <Ionicons name="save-outline" size={18} color="#FFFFFF" />
-              <Text style={styles.saveButtonText}>{isSaving ? 'Saving…' : 'Save & Push to Node'}</Text>
-            </TouchableOpacity>
-
-            <Text style={[styles.helpText, dynamic.smallText]}>
-              Saving updates MongoDB and triggers an MQTT push of the full config state to the node.
+          <View style={styles.healthRow}>
+            <Text style={dynamic.smallText}>Battery</Text>
+            <Text style={[styles.healthValue, { color: batteryColor(selectedNodeObj?.battery) }]}>
+              {selectedNodeObj?.battery !== undefined && selectedNodeObj?.battery !== null
+                ? `${selectedNodeObj.battery}%`
+                : 'Unknown'}
             </Text>
-          </>
-        )}
-      </View>
-    </ScrollView>
+          </View>
+
+          <View style={styles.healthRow}>
+            <Text style={dynamic.smallText}>Last heartbeat</Text>
+            <Text style={styles.healthValue}>
+              {selectedNodeObj?.lastHeartbeat ? new Date(selectedNodeObj.lastHeartbeat).toLocaleString() : 'N/A'}
+            </Text>
+          </View>
+
+          <View style={styles.healthRow}>
+            <Text style={dynamic.smallText}>Last seen</Text>
+            <Text style={styles.healthValue}>{formatLastSeen(selectedNodeObj?.lastHeartbeat)}</Text>
+          </View>
+        </View>
+
+        {/* Config editor */}
+        <View style={dynamic.card}>
+          <View style={styles.cardHeader}>
+            <Ionicons name="construct" size={22} color={isDarkMode ? '#60A5FA' : '#2563EB'} />
+            <Text style={dynamic.cardTitle}>Node Configuration</Text>
+          </View>
+
+          {isLoadingConfig ? (
+            <View style={{ paddingVertical: 20 }}>
+              <ActivityIndicator />
+              <Text style={[styles.centerText, dynamic.smallText]}>Loading configuration…</Text>
+            </View>
+          ) : !nodeConfig ? (
+            <Text style={dynamic.smallText}>Select a node to view configuration.</Text>
+          ) : (
+            <>
+              {FIELD_GROUPS.map((group) => (
+                <View key={group.title} style={{ marginTop: 14 }}>
+                  <Text style={dynamic.sectionLabel}>{group.title}</Text>
+                  <View style={dynamic.divider} />
+
+                  {group.fields.map((f) => {
+                    const isReadOnly = f.key === 'node_id';
+                    const value = draft[f.key] ?? '';
+
+                    return (
+                      <View key={f.key} style={{ marginTop: 10 }}>
+                        <Text style={dynamic.inputLabel}>{f.label}</Text>
+                        <TextInput
+                          value={value}
+                          editable={!isReadOnly && !isSaving}
+                          onChangeText={(t) => setDraft((prev) => ({ ...prev, [f.key]: t }))}
+                          style={[dynamic.input, isReadOnly ? { opacity: 0.6 } : null]}
+                          secureTextEntry={!!f.secure}
+                          keyboardType={f.keyboard || 'default'}
+                          autoCapitalize="none"
+                        />
+                      </View>
+                    );
+                  })}
+                </View>
+              ))}
+
+              <TouchableOpacity
+                onPress={onSave}
+                disabled={isSaving}
+                style={[styles.saveButton, isSaving ? { opacity: 0.7 } : null]}
+              >
+                <Ionicons name="save-outline" size={18} color="#FFFFFF" />
+                <Text style={styles.saveButtonText}>{isSaving ? 'Saving…' : 'Save & Push to Node'}</Text>
+              </TouchableOpacity>
+
+              <Text style={[styles.helpText, dynamic.smallText]}>
+                Saving updates MongoDB and triggers an MQTT push of the full config state to the node.
+              </Text>
+            </>
+          )}
+        </View>
+      </ScrollView>
+
+      {/* ── Create Admin Account Modal ───────────────────────────────── */}
+      <Modal
+        visible={showCreateAdmin}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => {
+          if (!isCreatingAdmin) {
+            setShowCreateAdmin(false);
+            resetCreateAdminForm();
+          }
+        }}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
+          <View style={dynamic.modalContainer}>
+            {/* Modal Header */}
+            <View style={styles.modalHeader}>
+              <View style={styles.modalTitleRow}>
+                <View style={styles.modalIconCircle}>
+                  <Ionicons name="person-add" size={22} color="#FFFFFF" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={dynamic.modalTitle}>Create Admin Account</Text>
+                  <Text style={dynamic.modalSubtitle}>Grant system access to a new administrator</Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                onPress={() => {
+                  if (!isCreatingAdmin) {
+                    setShowCreateAdmin(false);
+                    resetCreateAdminForm();
+                  }
+                }}
+                disabled={isCreatingAdmin}
+                style={styles.modalCloseButton}
+              >
+                <Ionicons name="close" size={22} color={isDarkMode ? '#9CA3AF' : '#6B7280'} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={dynamic.modalDivider} />
+
+            {/* Modal Form */}
+            <ScrollView
+              style={styles.modalScroll}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              {/* Security notice */}
+              <View style={styles.securityBanner}>
+                <Ionicons name="shield-checkmark" size={14} color="#059669" />
+                <Text style={styles.securityBannerText}>
+                  Account creation is restricted to admins only
+                </Text>
+              </View>
+
+              {/* Username */}
+              <View style={styles.modalFieldContainer}>
+                <Text style={dynamic.modalLabel}>Username *</Text>
+                <TextInput
+                  style={dynamic.modalInput}
+                  value={newUsername}
+                  onChangeText={setNewUsername}
+                  placeholder="Choose a username"
+                  placeholderTextColor={isDarkMode ? '#4B5563' : '#9CA3AF'}
+                  autoCapitalize="none"
+                  editable={!isCreatingAdmin}
+                  autoCorrect={false}
+                />
+              </View>
+
+              {/* Email */}
+              <View style={styles.modalFieldContainer}>
+                <Text style={dynamic.modalLabel}>Email (Optional)</Text>
+                <TextInput
+                  style={dynamic.modalInput}
+                  value={newEmail}
+                  onChangeText={setNewEmail}
+                  placeholder="admin@example.com"
+                  placeholderTextColor={isDarkMode ? '#4B5563' : '#9CA3AF'}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  editable={!isCreatingAdmin}
+                  autoCorrect={false}
+                />
+              </View>
+
+              {/* Password */}
+              <View style={styles.modalFieldContainer}>
+                <Text style={dynamic.modalLabel}>Password *</Text>
+                <View style={dynamic.modalPasswordContainer}>
+                  <TextInput
+                    style={dynamic.modalPasswordInput}
+                    value={newPassword}
+                    onChangeText={setNewPassword}
+                    placeholder="Min. 8 characters"
+                    placeholderTextColor={isDarkMode ? '#4B5563' : '#9CA3AF'}
+                    secureTextEntry={!showNewPassword}
+                    autoCapitalize="none"
+                    editable={!isCreatingAdmin}
+                    autoCorrect={false}
+                  />
+                  <TouchableOpacity
+                    onPress={() => setShowNewPassword(!showNewPassword)}
+                    style={styles.eyeButton}
+                    disabled={isCreatingAdmin}
+                  >
+                    <Ionicons
+                      name={showNewPassword ? 'eye-off' : 'eye'}
+                      size={20}
+                      color={isDarkMode ? '#6B7280' : '#9CA3AF'}
+                    />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Confirm Password */}
+              <View style={styles.modalFieldContainer}>
+                <Text style={dynamic.modalLabel}>Confirm Password *</Text>
+                <View style={dynamic.modalPasswordContainer}>
+                  <TextInput
+                    style={dynamic.modalPasswordInput}
+                    value={newConfirmPassword}
+                    onChangeText={setNewConfirmPassword}
+                    placeholder="Re-enter password"
+                    placeholderTextColor={isDarkMode ? '#4B5563' : '#9CA3AF'}
+                    secureTextEntry={!showNewConfirmPassword}
+                    autoCapitalize="none"
+                    editable={!isCreatingAdmin}
+                    autoCorrect={false}
+                  />
+                  <TouchableOpacity
+                    onPress={() => setShowNewConfirmPassword(!showNewConfirmPassword)}
+                    style={styles.eyeButton}
+                    disabled={isCreatingAdmin}
+                  >
+                    <Ionicons
+                      name={showNewConfirmPassword ? 'eye-off' : 'eye'}
+                      size={20}
+                      color={isDarkMode ? '#6B7280' : '#9CA3AF'}
+                    />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Action Buttons */}
+              <View style={styles.modalActions}>
+                <TouchableOpacity
+                  style={styles.cancelButton}
+                  onPress={() => {
+                    setShowCreateAdmin(false);
+                    resetCreateAdminForm();
+                  }}
+                  disabled={isCreatingAdmin}
+                >
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.createButton,
+                    (isCreatingAdmin || !newUsername || !newPassword || !newConfirmPassword) &&
+                      styles.createButtonDisabled,
+                  ]}
+                  onPress={handleCreateAdmin}
+                  disabled={isCreatingAdmin || !newUsername || !newPassword || !newConfirmPassword}
+                >
+                  {isCreatingAdmin ? (
+                    <ActivityIndicator color="#FFFFFF" size="small" />
+                  ) : (
+                    <>
+                      <Ionicons name="person-add-outline" size={16} color="#FFFFFF" />
+                      <Text style={styles.createButtonText}>Create Admin</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+    </>
   );
 }
 
@@ -558,6 +820,150 @@ const styles = StyleSheet.create({
   saveButtonText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
 
   helpText: { marginTop: 10, fontSize: 12, lineHeight: 16 },
-
   centerText: { textAlign: 'center', marginTop: 10 },
+
+  // ── Modal styles ───────────────────────────────────────────────────
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'flex-end',
+  },
+  modalContainer: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+    maxHeight: '90%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 10,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 16,
+  },
+  modalTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  modalIconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#059669',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  modalSubtitle: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  modalCloseButton: {
+    padding: 6,
+    marginLeft: 8,
+  },
+  modalDivider: {
+    height: 1,
+    width: '100%',
+  },
+  modalScroll: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+  },
+  securityBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#6EE7B7',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 16,
+  },
+  securityBannerText: {
+    fontSize: 12,
+    color: '#065F46',
+    fontWeight: '500',
+  },
+  modalFieldContainer: {
+    marginBottom: 16,
+  },
+  modalLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 6,
+  },
+  modalInput: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    fontSize: 14,
+  },
+  modalPasswordContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: 10,
+  },
+  modalPasswordInput: {
+    flex: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    fontSize: 14,
+  },
+  eyeButton: {
+    padding: 12,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  cancelButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+  },
+  cancelButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  createButton: {
+    flex: 2,
+    flexDirection: 'row',
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#059669',
+  },
+  createButtonDisabled: {
+    backgroundColor: '#9CA3AF',
+  },
+  createButtonText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
 });
