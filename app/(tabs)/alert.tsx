@@ -17,17 +17,22 @@ import {
 } from 'react-native';
 
 const API_BASE_URL = 'https://backend.smartenvironment.tech/api/v1';
+
 const API_ENDPOINTS = {
   NODES: '/node/list',
-  CURRENT_SENSORS: '/sensors/current',
-  THRESHOLDS: '/sensors/thresholds',
+
+  // Alerts (backend)
+  ALERTS_LIST: '/alerts/list',
+  ALERTS_ACK: '/alerts/acknowledge',
+  ALERTS_RESOLVE: '/alerts/resolve',
+  ALERTS_CLEAR: '/alerts/clear',
+  ALERTS_SETTINGS_GET: '/alerts/settings',
+  ALERTS_SETTINGS_POST: '/alerts/settings',
 };
 
-const getAuthHeaders = () => ({
-  'Content-Type': 'application/json',
-  'API-KEY': '49643a60-0aff-4a88-8e65-30ea428df8ee',
-});
+const API_KEY = '49643a60-0aff-4a88-8e65-30ea428df8ee';
 
+// Types 
 type NodeSummary = {
   id?: string;
   nodeId?: string;
@@ -37,25 +42,11 @@ type NodeSummary = {
   type?: string;
   battery?: number;
   lastHeartbeat?: number;
+
+  alertSettings?: any;
+  alerts?: any;
+  alertMetadata?: any;
 };
-
-function safeNodeId(n: NodeSummary): string | null {
-  return (n.id || n.nodeId || n.uuid || null) as string | null;
-}
-
-function formatLastSeen(lastHeartbeat?: number): string {
-  if (!lastHeartbeat) return 'No heartbeat yet';
-  const diffMs = Date.now() - lastHeartbeat;
-  if (diffMs < 0) return 'Just now';
-  const secs = Math.floor(diffMs / 1000);
-  if (secs < 60) return `${secs}s ago`;
-  const mins = Math.floor(secs / 60);
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  return `${days}d ago`;
-}
 
 type Severity = 'WARNING' | 'CRITICAL';
 type AlertStatus = 'ACTIVE' | 'ATTENDED' | 'RESOLVED';
@@ -68,10 +59,14 @@ type AlertType =
   | 'LIGHT'
   | 'BATTERY_LOW'
   | 'HEARTBEAT_MISSED'
-  | 'OCCUPANCY_HIGH';
+  | 'OCCUPANCY_HIGH'
+  // backend naming:
+  | 'BATTERY'
+  | 'HEARTBEAT'
+  | 'ROOM_LIMIT';
 
 type AlertLogItem = {
-  id: string;
+  id: string; // backend UUID or local id
   nodeId: string;
   nodeName?: string;
   type: AlertType;
@@ -86,10 +81,7 @@ type SensorThreshold = {
   min: number;
   max: number;
   critical: number;
-};
-
-type ThresholdResponse = {
-  thresholds?: Record<string, SensorThreshold>;
+  disabled?: boolean;
 };
 
 type CurrentSensorsResponse = {
@@ -120,6 +112,11 @@ const DEFAULT_SETTINGS: AlertSettings = {
     BATTERY_LOW: true,
     HEARTBEAT_MISSED: true,
     OCCUPANCY_HIGH: true,
+
+    // backend-aligned
+    BATTERY: true,
+    HEARTBEAT: true,
+    ROOM_LIMIT: true,
   },
   actions: {
     flashOnCritical: true,
@@ -131,17 +128,35 @@ const DEFAULT_SETTINGS: AlertSettings = {
   batteryLowPercent: 20,
 };
 
+// Helpers 
+function safeNodeId(n: NodeSummary): string | null {
+  return (n.id || n.nodeId || n.uuid || null) as string | null;
+}
+
+function formatLastSeen(lastHeartbeat?: number): string {
+  if (!lastHeartbeat) return 'No heartbeat yet';
+  const diffMs = Date.now() - lastHeartbeat;
+  if (diffMs < 0) return 'Just now';
+  const secs = Math.floor(diffMs / 1000);
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
+}
+
 function badgeColors(severity: Severity, isDark: boolean) {
-  // More accessible colours (distinct hue + good contrast in both modes)
   if (severity === 'CRITICAL') {
     return {
-      bg: isDark ? '#4C1D95' : '#F3E8FF', // purple family (distinct from warning)
+      bg: isDark ? '#4C1D95' : '#F3E8FF',
       text: isDark ? '#E9D5FF' : '#6B21A8',
       border: isDark ? '#C4B5FD' : '#A855F7',
     };
   }
   return {
-    bg: isDark ? '#7C2D12' : '#FFEDD5', // orange/amber
+    bg: isDark ? '#7C2D12' : '#FFEDD5',
     text: isDark ? '#FED7AA' : '#9A3412',
     border: isDark ? '#FDBA74' : '#F97316',
   };
@@ -169,18 +184,59 @@ function statusChip(status: AlertStatus, isDark: boolean) {
   };
 }
 
-function makeId() {
-  return `alert_${Math.random().toString(16).slice(2)}_${Date.now()}`;
-}
-
 function clampNum(v: number, min: number, max: number) {
   return Math.max(min, Math.min(max, v));
 }
 
+// Backend shape: { "TEMPERATURE": [ {alertId, type, level, createdAt, acknowledged, resolved}, ...], ... }
+function mapBackendAlertsToLog(
+  nodeId: string,
+  nodeName: string,
+  alertsByType: Record<string, any>
+): AlertLogItem[] {
+  const out: AlertLogItem[] = [];
+  if (!alertsByType || typeof alertsByType !== 'object') return out;
+
+  Object.entries(alertsByType).forEach(([typeKey, arr]) => {
+    if (!Array.isArray(arr)) return;
+
+    for (const a of arr) {
+      const createdAt = typeof a?.createdAt === 'number' ? a.createdAt : Date.now();
+      const level = String(a?.level || a?.alertLevel || a?.severity || 'WARNING').toUpperCase();
+      const severity: Severity = level === 'CRITICAL' ? 'CRITICAL' : 'WARNING';
+
+      const acknowledged = Boolean(a?.acknowledged);
+      const resolved = Boolean(a?.resolved);
+
+      const status: AlertStatus = resolved ? 'RESOLVED' : acknowledged ? 'ATTENDED' : 'ACTIVE';
+
+      // IMPORTANT: backend uses alertId UUID
+      const id = String(a?.alertId || a?.id || `${typeKey}_${createdAt}`);
+
+      out.push({
+        id,
+        nodeId,
+        nodeName,
+        type: typeKey as AlertType,
+        severity,
+        status,
+        message: a?.message
+          ? String(a.message)
+          : `${typeKey} ${severity === 'CRITICAL' ? 'critical' : 'warning'}`,
+        createdAt,
+      });
+    }
+  });
+
+  out.sort((a, b) => b.createdAt - a.createdAt);
+  return out;
+}
+
+// Main Screen 
 export default function AlertsScreen() {
   const router = useRouter();
 
-  // ---------- DEV logger ----------
+  // DEV logger 
   const log = (...args: any[]) => {
     if (__DEV__) console.log('[AlertsScreen]', ...args);
   };
@@ -191,18 +247,23 @@ export default function AlertsScreen() {
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [nodes, setNodes] = useState<NodeSummary[]>([]);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
+
   const [isLoadingNodes, setIsLoadingNodes] = useState(true);
   const [isLoadingAlerts, setIsLoadingAlerts] = useState(false);
+
   const [settings, setSettings] = useState<AlertSettings>(DEFAULT_SETTINGS);
+
   const [alertLog, setAlertLog] = useState<AlertLogItem[]>([]);
   const [activeAlerts, setActiveAlerts] = useState<AlertLogItem[]>([]);
+
+  // optional local sensor data 
   const [currentSensors, setCurrentSensors] = useState<CurrentSensorsResponse | null>(null);
   const [thresholds, setThresholds] = useState<Record<string, SensorThreshold>>({});
 
   const lastAnnouncedHashRef = useRef<string>('');
   const isMountedRef = useRef<boolean>(false);
 
-  // -------------------- Auth + Theme --------------------
+  // Auth guard + Theme 
   useEffect(() => {
     (async () => {
       try {
@@ -241,21 +302,47 @@ export default function AlertsScreen() {
     }
   };
 
-  // -------------------- Node Fetch --------------------
+  // Headers
+  const getAdminHeaders = async () => {
+    
+    const sessionToken = await AsyncStorage.getItem('sessionToken');
+    const authToken = await AsyncStorage.getItem('authToken');
+    const token = sessionToken || authToken;
+
+    return {
+      'Content-Type': 'application/json',
+      'API-KEY': API_KEY,
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    };
+  };
+
+  const adminFetch = async (url: string, init?: RequestInit) => {
+    const headers = await getAdminHeaders();
+    if (__DEV__) {
+      log('FETCH', url, { method: init?.method || 'GET', hasAuth: !!headers.Authorization });
+    }
+
+    return fetch(url, {
+      ...(init || {}),
+      headers: {
+        ...headers,
+        ...(init?.headers || {}),
+      },
+    });
+  };
+
+  // Node Fetch 
   const fetchNodes = async () => {
     const t0 = Date.now();
     setIsLoadingNodes(true);
     log('NODES_FETCH_START');
 
     try {
-      const res = await fetch(`${API_BASE_URL}${API_ENDPOINTS.NODES}`, {
-        method: 'GET',
-        headers: getAuthHeaders(),
-      });
+      const res = await adminFetch(`${API_BASE_URL}${API_ENDPOINTS.NODES}`, { method: 'GET' });
       if (!res.ok) throw new Error(`Failed to fetch nodes: ${res.status} ${res.statusText}`);
 
       const data = await res.json();
-      const list: NodeSummary[] = Array.isArray(data) ? data : data.nodes || [];
+      const list: NodeSummary[] = Array.isArray(data) ? data : data.nodes || data.data || [];
       setNodes(list);
 
       log('NODES_FETCH_SUCCESS', { count: list.length, ms: Date.now() - t0 });
@@ -269,11 +356,12 @@ export default function AlertsScreen() {
       }
     } catch (e: any) {
       warn('NODES_FETCH_FAIL', e?.message || e);
-      Alert.alert('Error', e.message || 'Could not fetch nodes');
+      Alert.alert('Error', e?.message || 'Could not fetch nodes');
     } finally {
       setIsLoadingNodes(false);
     }
   };
+
   useEffect(() => {
     fetchNodes();
   }, []);
@@ -282,21 +370,22 @@ export default function AlertsScreen() {
     () => nodes.find((n) => safeNodeId(n) === selectedNode) || null,
     [nodes, selectedNode]
   );
-  const selectedNodeName = selectedNodeObj?.friendlyName || selectedNodeObj?.name || selectedNode || 'Unknown Node';
 
-  // -------------------- Storage Keys --------------------
+  const selectedNodeName =
+    selectedNodeObj?.friendlyName || selectedNodeObj?.name || selectedNode || 'Unknown Node';
+
+  // Storage Keys 
   const storageKeys = useMemo(() => {
-    if (!selectedNode) return { settingsKey: null, logKey: null, lastHashKey: null };
+    if (!selectedNode) return { settingsKey: null, logKey: null };
     return {
       settingsKey: `alertSettings:${selectedNode}`,
       logKey: `alertLog:${selectedNode}`,
-      lastHashKey: `alertLastHash:${selectedNode}`,
     };
   }, [selectedNode]);
 
-  const loadStored = async () => {
+  const loadStoredLocal = async () => {
     if (!selectedNode || !storageKeys.settingsKey || !storageKeys.logKey) return;
-    log('LOAD_STORED_START', selectedNode);
+    log('LOAD_STORED_LOCAL_START', selectedNode);
 
     try {
       const [sRaw, lRaw] = await Promise.all([
@@ -312,217 +401,188 @@ export default function AlertsScreen() {
           enabled: { ...DEFAULT_SETTINGS.enabled, ...(parsed.enabled || {}) },
           actions: { ...DEFAULT_SETTINGS.actions, ...(parsed.actions || {}) },
         });
-        log('LOAD_SETTINGS_SUCCESS');
+        log('LOAD_SETTINGS_LOCAL_SUCCESS');
       } else {
         setSettings(DEFAULT_SETTINGS);
-        log('LOAD_SETTINGS_DEFAULT');
+        log('LOAD_SETTINGS_LOCAL_DEFAULT');
       }
 
       if (lRaw) {
         const parsedLog: AlertLogItem[] = JSON.parse(lRaw);
         setAlertLog(Array.isArray(parsedLog) ? parsedLog : []);
-        log('LOAD_LOG_SUCCESS', { count: Array.isArray(parsedLog) ? parsedLog.length : 0 });
+        log('LOAD_LOG_LOCAL_SUCCESS', { count: Array.isArray(parsedLog) ? parsedLog.length : 0 });
       } else {
         setAlertLog([]);
-        log('LOAD_LOG_EMPTY');
+        log('LOAD_LOG_LOCAL_EMPTY');
       }
     } catch (e) {
-      warn('LOAD_STORED_FAIL', e);
+      warn('LOAD_STORED_LOCAL_FAIL', e);
       setSettings(DEFAULT_SETTINGS);
       setAlertLog([]);
     }
   };
-  useEffect(() => {
-    if (selectedNode) loadStored();
-  }, [selectedNode]);
 
-  const persistSettings = async (next: AlertSettings) => {
+  const persistSettingsLocal = async (next: AlertSettings) => {
     if (!storageKeys.settingsKey) return;
     try {
       await AsyncStorage.setItem(storageKeys.settingsKey, JSON.stringify(next));
-      log('PERSIST_SETTINGS_OK');
+      log('PERSIST_SETTINGS_LOCAL_OK');
     } catch (e) {
-      warn('PERSIST_SETTINGS_FAIL', e);
+      warn('PERSIST_SETTINGS_LOCAL_FAIL', e);
     }
   };
-  const persistLog = async (nextLog: AlertLogItem[]) => {
+
+  const persistLogLocal = async (nextLog: AlertLogItem[]) => {
     if (!storageKeys.logKey) return;
     try {
       await AsyncStorage.setItem(storageKeys.logKey, JSON.stringify(nextLog));
-      log('PERSIST_LOG_OK', { count: nextLog.length });
+      log('PERSIST_LOG_LOCAL_OK', { count: nextLog.length });
     } catch (e) {
-      warn('PERSIST_LOG_FAIL', e);
+      warn('PERSIST_LOG_LOCAL_FAIL', e);
     }
   };
 
-  // -------------------- Fetch Sensors + Thresholds --------------------
-  const fetchCurrentAndThresholds = async () => {
-    if (!selectedNode) return;
-    const t0 = Date.now();
-    log('SENSORS_FETCH_START', selectedNode);
+  useEffect(() => {
+    if (selectedNode) loadStoredLocal();
+  }, [selectedNode]);
 
+  // Backend (fetch settings + alerts) 
+  const fetchBackendSettings = async () => {
+    if (!selectedNode) return;
     try {
-      const [currentRes, thresholdRes] = await Promise.all([
-        fetch(`${API_BASE_URL}${API_ENDPOINTS.CURRENT_SENSORS}?nodeId=${encodeURIComponent(selectedNode)}`, {
-          headers: getAuthHeaders(),
-        }),
-        fetch(`${API_BASE_URL}${API_ENDPOINTS.THRESHOLDS}?nodeId=${encodeURIComponent(selectedNode)}`, {
-          headers: getAuthHeaders(),
-        }),
-      ]);
+      const res = await adminFetch(
+        `${API_BASE_URL}${API_ENDPOINTS.ALERTS_SETTINGS_GET}?nodeId=${encodeURIComponent(selectedNode)}`,
+        { method: 'GET' }
+      );
 
-      if (currentRes.status === 204) {
-        setCurrentSensors(null);
-        log('SENSORS_CURRENT_204');
-      } else if (currentRes.ok) {
-        const json = await currentRes.json();
-        setCurrentSensors(json);
-        log('SENSORS_CURRENT_OK');
-      } else {
-        warn('SENSORS_CURRENT_FAIL', currentRes.status);
+      if (res.status === 401) {
+        warn('SETTINGS_GET_401');
+        return;
       }
 
-      if (thresholdRes.ok) {
-        const parsed: ThresholdResponse = JSON.parse(await thresholdRes.text());
-        setThresholds(parsed.thresholds || {});
-        log('SENSORS_THRESHOLDS_OK', { keys: Object.keys(parsed.thresholds || {}).length });
-      } else {
-        warn('SENSORS_THRESHOLDS_FAIL', thresholdRes.status);
+      if (!res.ok) {
+        warn('SETTINGS_GET_FAIL', res.status);
+        return;
       }
 
-      log('SENSORS_FETCH_DONE', { ms: Date.now() - t0 });
+      const json = await res.json();
+
+      const enabledAlerts: string[] = Array.isArray(json?.enabledAlerts) ? json.enabledAlerts : [];
+      const next: AlertSettings = {
+        ...DEFAULT_SETTINGS,
+        actions: {
+          flashOnCritical: Boolean(json?.flashOnCritical),
+          soundOnCritical: Boolean(json?.soundOnCritical),
+          fanOnCritical: Boolean(json?.fanOnCritical),
+        },
+        maxPeoplePerRoom:
+          typeof json?.maxPeopleAllowedInRoom === 'number'
+            ? json.maxPeopleAllowedInRoom
+            : DEFAULT_SETTINGS.maxPeoplePerRoom,
+        heartbeatTimeoutSeconds:
+          typeof json?.heartbeatTimeout === 'number'
+            ? Math.floor(json.heartbeatTimeout / 1000)
+            : DEFAULT_SETTINGS.heartbeatTimeoutSeconds,
+        batteryLowPercent:
+          typeof json?.batteryLowThreshold === 'number'
+            ? json.batteryLowThreshold
+            : DEFAULT_SETTINGS.batteryLowPercent,
+        enabled: {
+          ...DEFAULT_SETTINGS.enabled,
+          HEARTBEAT: enabledAlerts.includes('HEARTBEAT'),
+          BATTERY: enabledAlerts.includes('BATTERY'),
+          ROOM_LIMIT: enabledAlerts.includes('ROOM_LIMIT'),
+        },
+      };
+
+      setSettings((prev) => ({
+        ...prev,
+        ...next,
+        enabled: { ...prev.enabled, ...next.enabled },
+        actions: { ...prev.actions, ...next.actions },
+      }));
+
+      log('SETTINGS_GET_OK');
     } catch (e) {
-      warn('SENSORS_FETCH_EXCEPTION', e);
+      warn('SETTINGS_GET_EXCEPTION', e);
     }
   };
 
-  // -------------------- Compute Active Alerts --------------------
-  const computeAlerts = async () => {
+  const fetchBackendAlerts = async () => {
     if (!selectedNode) return;
-    const t0 = Date.now();
-    const now = Date.now();
-    const nextActive: AlertLogItem[] = [];
 
-    log('ALERT_COMPUTE_START', { nodeId: selectedNode });
+    const res = await adminFetch(
+      `${API_BASE_URL}${API_ENDPOINTS.ALERTS_LIST}?nodeId=${encodeURIComponent(selectedNode)}`,
+      { method: 'GET' }
+    );
 
-    // Heartbeat missed
-    const lastHeartbeat = selectedNodeObj?.lastHeartbeat;
-    if (settings.enabled.HEARTBEAT_MISSED && lastHeartbeat) {
-      const diffSec = (now - lastHeartbeat) / 1000;
-      if (diffSec > settings.heartbeatTimeoutSeconds) {
-        nextActive.push({
-          id: makeId(),
-          nodeId: selectedNode,
-          nodeName: selectedNodeName,
-          type: 'HEARTBEAT_MISSED',
-          severity: 'CRITICAL',
-          status: 'ACTIVE',
-          message: `No heartbeat for ${Math.floor(diffSec)}s (timeout ${settings.heartbeatTimeoutSeconds}s)`,
-          value: Math.floor(diffSec),
-          createdAt: now,
-        });
-      }
+    if (res.status === 401) {
+      warn('ALERTS_LIST_401');
+      return;
     }
 
-    // Battery low
-    const battery = selectedNodeObj?.battery;
-    if (settings.enabled.BATTERY_LOW && typeof battery === 'number') {
-      nextActive.push({
-        id: makeId(),
-        nodeId: selectedNode,
-        nodeName: selectedNodeName,
-        type: 'BATTERY_LOW',
-        severity: battery <= Math.max(5, Math.floor(settings.batteryLowPercent / 2)) ? 'CRITICAL' : 'WARNING',
-        status: 'ACTIVE',
-        message: `Battery low: ${battery}% (threshold ${settings.batteryLowPercent}%)`,
-        value: battery,
-        createdAt: now,
-      });
+    if (!res.ok) {
+      warn('ALERTS_LIST_FAIL', res.status);
+      return;
     }
 
-    // Sensor thresholds
-    const checkNumeric = (type: AlertType, key: string, label: string) => {
-      if (!currentSensors || !thresholds[key]) return;
-      const value = parseFloat(currentSensors[key]);
-      if (Number.isNaN(value)) return;
-      const t = thresholds[key];
+    const json = await res.json();
+    const mapped = mapBackendAlertsToLog(selectedNode, selectedNodeName, json);
 
-      if (value > t.critical) {
-        nextActive.push({
-          id: makeId(),
-          nodeId: selectedNode,
-          nodeName: selectedNodeName,
-          type,
-          severity: 'CRITICAL',
-          status: 'ACTIVE',
-          message: `${label} critical: ${value} (critical > ${t.critical})`,
-          value,
-          createdAt: now,
-        });
-      } else if (value > t.max) {
-        nextActive.push({
-          id: makeId(),
-          nodeId: selectedNode,
-          nodeName: selectedNodeName,
-          type,
-          severity: 'WARNING',
-          status: 'ACTIVE',
-          message: `${label} high: ${value} (max ${t.max})`,
-          value,
-          createdAt: now,
-        });
-      } else if (value < t.min) {
-        nextActive.push({
-          id: makeId(),
-          nodeId: selectedNode,
-          nodeName: selectedNodeName,
-          type,
-          severity: 'WARNING',
-          status: 'ACTIVE',
-          message: `${label} low: ${value} (min ${t.min})`,
-          value,
-          createdAt: now,
-        });
-      }
+    setAlertLog(mapped.slice(0, 200));
+    await persistLogLocal(mapped.slice(0, 200));
+
+    const actives = mapped.filter((a) => a.status !== 'RESOLVED');
+    setActiveAlerts(actives);
+
+    log('ALERTS_LIST_OK', { log: mapped.length, active: actives.length });
+  };
+
+  const postBackendSettings = async () => {
+    if (!selectedNode) return;
+
+    const enabledAlerts: string[] = [];
+    if (settings.enabled.HEARTBEAT) enabledAlerts.push('HEARTBEAT');
+    if (settings.enabled.BATTERY) enabledAlerts.push('BATTERY');
+    if (settings.enabled.ROOM_LIMIT) enabledAlerts.push('ROOM_LIMIT');
+
+    const payload = {
+      enabledAlerts,
+      flashOnCritical: settings.actions.flashOnCritical,
+      soundOnCritical: settings.actions.soundOnCritical,
+      fanOnCritical: settings.actions.fanOnCritical,
+      maxPeopleAllowedInRoom: settings.maxPeoplePerRoom,
+      heartbeatTimeout: settings.heartbeatTimeoutSeconds * 1000,
+      batteryLowThreshold: settings.batteryLowPercent,
     };
 
-    if (settings.enabled.TEMPERATURE) checkNumeric('TEMPERATURE', 'temperature', 'Temperature');
-    if (settings.enabled.HUMIDITY) checkNumeric('HUMIDITY', 'humidity', 'Humidity');
-    if (settings.enabled.PRESSURE) checkNumeric('PRESSURE', 'pressure', 'Pressure');
-    if (settings.enabled.NOISE) checkNumeric('NOISE', 'noiseLevel', 'Noise level');
-    if (settings.enabled.LIGHT) {
-      (['lightClear', 'lightRed', 'lightGreen', 'lightBlue'] as const).forEach((k) =>
-        checkNumeric('LIGHT', k, `Light (${k.replace('light', '') || 'Clear'})`)
-      );
-    }
-
-    setActiveAlerts(nextActive);
-
-    // Update log
-    if (!storageKeys.lastHashKey) return;
-    const hash = nextActive
-      .map((a) => `${a.type}:${a.severity}:${a.message}`)
-      .sort()
-      .join('|');
-
     try {
-      const lastHash = await AsyncStorage.getItem(storageKeys.lastHashKey);
-      if (hash && hash !== lastHash) {
-        await AsyncStorage.setItem(storageKeys.lastHashKey, hash);
-        const merged = [...nextActive, ...alertLog].slice(0, 200);
-        setAlertLog(merged);
-        await persistLog(merged);
-        log('ALERT_LOG_UPDATED', { newActive: nextActive.length, mergedCount: merged.length });
-      } else {
-        log('ALERT_LOG_NO_CHANGE', { active: nextActive.length });
+      const res = await adminFetch(
+        `${API_BASE_URL}${API_ENDPOINTS.ALERTS_SETTINGS_POST}?nodeId=${encodeURIComponent(selectedNode)}`,
+        { method: 'POST', body: JSON.stringify(payload) }
+      );
+
+      if (res.status === 401) {
+        Alert.alert('Unauthorized', 'Your admin session token is missing or expired. Please login again.');
+        return;
       }
+
+      if (!res.ok) {
+        const t = await res.text();
+        warn('SETTINGS_POST_FAIL', res.status, t);
+        Alert.alert('Error', 'Failed to save alert settings to backend.');
+        return;
+      }
+
+      Alert.alert('Saved', 'Alert settings saved to backend.');
+      log('SETTINGS_POST_OK');
     } catch (e) {
-      warn('ALERT_HASH_STORAGE_FAIL', e);
-    } finally {
-      log('ALERT_COMPUTE_DONE', { active: nextActive.length, ms: Date.now() - t0 });
+      warn('SETTINGS_POST_EXCEPTION', e);
+      Alert.alert('Error', 'Network error while saving settings.');
     }
   };
 
+  // Refresh orchestration 
   const refreshAll = async () => {
     if (!selectedNode) return;
     const t0 = Date.now();
@@ -532,8 +592,8 @@ export default function AlertsScreen() {
 
     try {
       await fetchNodes();
-      await fetchCurrentAndThresholds();
-      await computeAlerts();
+      await fetchBackendSettings();
+      await fetchBackendAlerts();
       log('REFRESH_SUCCESS', { ms: Date.now() - t0 });
     } catch (e) {
       warn('REFRESH_FAIL', e);
@@ -551,22 +611,86 @@ export default function AlertsScreen() {
 
   useEffect(() => {
     if (selectedNode) {
-      computeAlerts();
-      persistSettings(settings);
-      log('SETTINGS_CHANGED');
+      persistSettingsLocal(settings);
+      log('SETTINGS_CHANGED_LOCAL_PERSIST');
     }
-  }, [settings]);
+  }, [settings, selectedNode]);
 
-  const updateAlertStatus = async (alertId: string, status: AlertStatus) => {
-    log('ALERT_STATUS_UPDATE', { alertId, status });
-    const next = alertLog.map((a) => (a.id === alertId ? { ...a, status } : a));
-    setAlertLog(next);
-    await persistLog(next);
+  // Status updates (backend calls) 
+  const acknowledgeAlert = async (alertId: string) => {
+    if (!selectedNode) return;
+
+    const res = await adminFetch(
+      `${API_BASE_URL}${API_ENDPOINTS.ALERTS_ACK}?nodeId=${encodeURIComponent(selectedNode)}&alertId=${encodeURIComponent(alertId)}`,
+      { method: 'POST' }
+    );
+
+    if (res.status === 401) {
+      Alert.alert('Unauthorized', 'Please login again to acknowledge alerts.');
+      return;
+    }
+
+    if (!res.ok) {
+      warn('ACK_FAIL', res.status);
+      Alert.alert('Error', 'Failed to acknowledge alert.');
+      return;
+    }
+
+    AccessibilityInfo.announceForAccessibility?.('Alert marked as attended');
+    await fetchBackendAlerts();
   };
 
-  // Accessibility: announce new/critical alerts 
+  const resolveAlert = async (alertId: string) => {
+    if (!selectedNode) return;
+
+    const res = await adminFetch(
+      `${API_BASE_URL}${API_ENDPOINTS.ALERTS_RESOLVE}?nodeId=${encodeURIComponent(selectedNode)}&alertId=${encodeURIComponent(alertId)}`,
+      { method: 'POST' }
+    );
+
+    if (res.status === 401) {
+      Alert.alert('Unauthorized', 'Please login again to resolve alerts.');
+      return;
+    }
+
+    if (!res.ok) {
+      warn('RESOLVE_FAIL', res.status);
+      Alert.alert('Error', 'Failed to resolve alert.');
+      return;
+    }
+
+    AccessibilityInfo.announceForAccessibility?.('Alert resolved');
+    await fetchBackendAlerts();
+  };
+
+  const clearBackendAlerts = async () => {
+    if (!selectedNode) return;
+
+    const res = await adminFetch(
+      `${API_BASE_URL}${API_ENDPOINTS.ALERTS_CLEAR}?nodeId=${encodeURIComponent(selectedNode)}`,
+      { method: 'POST' }
+    );
+
+    if (res.status === 401) {
+      Alert.alert('Unauthorized', 'Please login again to clear alerts.');
+      return;
+    }
+
+    if (!res.ok) {
+      warn('CLEAR_FAIL', res.status);
+      Alert.alert('Error', 'Failed to clear backend alerts.');
+      return;
+    }
+
+    setAlertLog([]);
+    setActiveAlerts([]);
+    await persistLogLocal([]);
+    AccessibilityInfo.announceForAccessibility?.('Alert log cleared');
+    Alert.alert('Cleared', 'Alerts cleared for this node.');
+  };
+
+  // Accessibility
   useEffect(() => {
-    // Avoid announcing on very first render
     if (!isMountedRef.current) {
       isMountedRef.current = true;
       return;
@@ -592,20 +716,40 @@ export default function AlertsScreen() {
     }
   }, [activeAlerts, selectedNodeName]);
 
-  // -------------------- UI dynamic styles --------------------
+  // UI dynamic styles 
   const dynamic = {
     container: { ...styles.container, backgroundColor: isDarkMode ? '#111827' : '#F9FAFB' },
-    header: { ...styles.header, backgroundColor: isDarkMode ? '#1F2937' : '#FFFFFF', borderBottomColor: isDarkMode ? '#374151' : '#E5E7EB' },
+    header: {
+      ...styles.header,
+      backgroundColor: isDarkMode ? '#1F2937' : '#FFFFFF',
+      borderBottomColor: isDarkMode ? '#374151' : '#E5E7EB',
+    },
     title: { ...styles.title, color: isDarkMode ? '#F9FAFB' : '#111827' },
     subtitle: { ...styles.subtitle, color: isDarkMode ? '#D1D5DB' : '#6B7280' },
     sectionLabel: { ...styles.sectionLabel, color: isDarkMode ? '#E5E7EB' : '#374151' },
-    selector: { ...styles.selector, backgroundColor: isDarkMode ? '#1F2937' : '#FFFFFF', borderBottomColor: isDarkMode ? '#374151' : '#E5E7EB' },
-    nodeButton: { ...styles.nodeButton, backgroundColor: isDarkMode ? '#374151' : '#FFFFFF', borderColor: isDarkMode ? '#6B7280' : '#D1D5DB' },
-    nodeButtonActive: { ...styles.nodeButtonActive, backgroundColor: isDarkMode ? '#0B3A66' : '#EFF6FF', borderColor: isDarkMode ? '#60A5FA' : '#2563EB' },
+    selector: {
+      ...styles.selector,
+      backgroundColor: isDarkMode ? '#1F2937' : '#FFFFFF',
+      borderBottomColor: isDarkMode ? '#374151' : '#E5E7EB',
+    },
+    nodeButton: {
+      ...styles.nodeButton,
+      backgroundColor: isDarkMode ? '#374151' : '#FFFFFF',
+      borderColor: isDarkMode ? '#6B7280' : '#D1D5DB',
+    },
+    nodeButtonActive: {
+      ...styles.nodeButtonActive,
+      backgroundColor: isDarkMode ? '#0B3A66' : '#EFF6FF',
+      borderColor: isDarkMode ? '#60A5FA' : '#2563EB',
+    },
     nodeButtonText: { ...styles.nodeButtonText, color: isDarkMode ? '#E5E7EB' : '#4B5563' },
     nodeButtonTextActive: { ...styles.nodeButtonTextActive, color: isDarkMode ? '#DBEAFE' : '#1D4ED8' },
 
-    card: { ...styles.card, backgroundColor: isDarkMode ? '#1F2937' : '#FFFFFF', borderColor: isDarkMode ? '#374151' : '#E5E7EB' },
+    card: {
+      ...styles.card,
+      backgroundColor: isDarkMode ? '#1F2937' : '#FFFFFF',
+      borderColor: isDarkMode ? '#374151' : '#E5E7EB',
+    },
     cardTitle: { ...styles.cardTitle, color: isDarkMode ? '#F9FAFB' : '#111827' },
     smallText: { ...styles.smallText, color: isDarkMode ? '#D1D5DB' : '#6B7280' },
 
@@ -621,37 +765,29 @@ export default function AlertsScreen() {
 
     divider: { ...styles.divider, backgroundColor: isDarkMode ? '#374151' : '#E5E7EB' },
 
-    // Text colours previously hard-coded (accessibility fix)
     metaText: { color: isDarkMode ? '#D1D5DB' : '#6B7280' },
     bodyText: { color: isDarkMode ? '#F9FAFB' : '#111827' },
-    mutedText: { color: isDarkMode ? '#D1D5DB' : '#6B7280' },
   };
 
-  // -------------------- Render helpers --------------------
   const enabledAlertRows: { type: AlertType; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
     { type: 'TEMPERATURE', label: 'Temperature out of range', icon: 'thermometer' },
     { type: 'HUMIDITY', label: 'Humidity out of range', icon: 'water' },
     { type: 'NOISE', label: 'Noise too high', icon: 'volume-high' },
-    { type: 'BATTERY_LOW', label: 'Battery low', icon: 'battery-dead-outline' },
-    { type: 'HEARTBEAT_MISSED', label: 'Heartbeat missed', icon: 'pulse' },
-    { type: 'OCCUPANCY_HIGH', label: 'Occupancy too high', icon: 'people' },
+    { type: 'BATTERY', label: 'Battery low', icon: 'battery-dead-outline' },
+    { type: 'HEARTBEAT', label: 'Heartbeat missed', icon: 'pulse' },
+    { type: 'ROOM_LIMIT', label: 'Occupancy too high', icon: 'people' },
     { type: 'PRESSURE', label: 'Pressure out of range', icon: 'speedometer' },
     { type: 'LIGHT', label: 'Light out of range', icon: 'bulb' },
   ];
 
   const displayedLog = useMemo(() => {
-    // newest first
     return [...alertLog].sort((a, b) => b.createdAt - a.createdAt);
   }, [alertLog]);
 
   const a11yNodeName = selectedNodeName || 'selected node';
 
   return (
-    <ScrollView
-      style={dynamic.container}
-      contentContainerStyle={{ paddingBottom: 24 }}
-      accessibilityLabel="Alerts screen"
-    >
+    <ScrollView style={dynamic.container} contentContainerStyle={{ paddingBottom: 24 }} accessibilityLabel="Alerts screen">
       {/* Header */}
       <View style={dynamic.header} accessible accessibilityRole="header" accessibilityLabel="Alerts header">
         <View style={{ flex: 1 }}>
@@ -677,7 +813,7 @@ export default function AlertsScreen() {
           style={styles.iconButton}
           accessibilityRole="button"
           accessibilityLabel="Refresh alerts"
-          accessibilityHint="Fetches latest node list and sensor data"
+          accessibilityHint="Fetches latest node list and backend alerts"
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
           <Ionicons name="refresh" size={22} color={isDarkMode ? '#93C5FD' : '#2563EB'} />
@@ -723,11 +859,7 @@ export default function AlertsScreen() {
       </View>
 
       {/* Quick health card */}
-      <View
-        style={dynamic.card}
-        accessible
-        accessibilityLabel={`Node status for ${a11yNodeName}`}
-      >
+      <View style={dynamic.card} accessible accessibilityLabel={`Node status for ${a11yNodeName}`}>
         <View style={styles.cardHeader}>
           <Ionicons name="information-circle-outline" size={22} color={isDarkMode ? '#60A5FA' : '#2563EB'} />
           <Text style={dynamic.cardTitle}>Node Status</Text>
@@ -797,45 +929,24 @@ export default function AlertsScreen() {
                 <View style={styles.actionRow}>
                   <TouchableOpacity
                     style={[styles.smallButton, styles.primaryButton]}
-                    onPress={() => {
-                      const match = displayedLog.find((x) => x.type === a.type && x.message === a.message);
-                      if (match) {
-                        updateAlertStatus(match.id, 'ATTENDED');
-                        AccessibilityInfo.announceForAccessibility?.('Alert marked as attended');
-                      }
-                    }}
+                    onPress={() => acknowledgeAlert(a.id)}
                     accessibilityRole="button"
                     accessibilityLabel="Mark alert as attended"
-                    accessibilityHint="Updates the alert status in the log"
+                    accessibilityHint="Sends acknowledge to backend and clears alert on node"
                   >
                     <Text style={styles.smallButtonText}>Mark Attended</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
                     style={[styles.smallButton, styles.successButton]}
-                    onPress={() => {
-                      const match = displayedLog.find((x) => x.type === a.type && x.message === a.message);
-                      if (match) {
-                        updateAlertStatus(match.id, 'RESOLVED');
-                        AccessibilityInfo.announceForAccessibility?.('Alert resolved');
-                      }
-                    }}
+                    onPress={() => resolveAlert(a.id)}
                     accessibilityRole="button"
                     accessibilityLabel="Resolve alert"
-                    accessibilityHint="Marks this alert as resolved in the log"
+                    accessibilityHint="Sends resolve to backend and clears alert on node"
                   >
                     <Text style={styles.smallButtonText}>Resolve</Text>
                   </TouchableOpacity>
                 </View>
-
-                {a.severity === 'CRITICAL' && (
-                  <Text style={[styles.hint, dynamic.smallText]}>
-                    Critical actions enabled: {settings.actions.flashOnCritical ? 'Flash ' : ''}
-                    {settings.actions.soundOnCritical ? 'Sound ' : ''}
-                    {settings.actions.fanOnCritical ? 'Fan ' : ''}
-                    {!settings.actions.flashOnCritical && !settings.actions.soundOnCritical && !settings.actions.fanOnCritical ? 'None' : ''}
-                  </Text>
-                )}
               </View>
             );
           })
@@ -888,10 +999,7 @@ export default function AlertsScreen() {
                       styles.primaryButton,
                       { opacity: a.status === 'RESOLVED' ? 0.5 : 1 },
                     ]}
-                    onPress={() => {
-                      updateAlertStatus(a.id, 'ATTENDED');
-                      AccessibilityInfo.announceForAccessibility?.('Marked as attended');
-                    }}
+                    onPress={() => acknowledgeAlert(a.id)}
                     accessibilityRole="button"
                     accessibilityLabel="Mark log entry as attended"
                     accessibilityState={{ disabled: a.status === 'RESOLVED' }}
@@ -906,10 +1014,7 @@ export default function AlertsScreen() {
                       styles.successButton,
                       { opacity: a.status === 'RESOLVED' ? 0.5 : 1 },
                     ]}
-                    onPress={() => {
-                      updateAlertStatus(a.id, 'RESOLVED');
-                      AccessibilityInfo.announceForAccessibility?.('Marked as resolved');
-                    }}
+                    onPress={() => resolveAlert(a.id)}
                     accessibilityRole="button"
                     accessibilityLabel="Mark log entry as resolved"
                     accessibilityState={{ disabled: a.status === 'RESOLVED' }}
@@ -985,29 +1090,7 @@ export default function AlertsScreen() {
           </View>
 
           <Text style={[styles.hint, dynamic.smallText]}>
-            These toggles are ready for backend integration (e.g., pushing actions to the node on critical conditions).
-          </Text>
-        </View>
-
-        <View style={{ marginTop: 18 }}>
-          <Text style={dynamic.sectionLabel}>Room Limits</Text>
-          <View style={dynamic.divider} />
-
-          <Text style={dynamic.inputLabel}>Maximum people per room</Text>
-          <TextInput
-            value={String(settings.maxPeoplePerRoom)}
-            keyboardType="numeric"
-            style={dynamic.input}
-            onChangeText={(t) => {
-              const n = clampNum(parseInt(t || '0', 10) || 0, 0, 999);
-              setSettings((p) => ({ ...p, maxPeoplePerRoom: n }));
-            }}
-            accessibilityLabel="Maximum people per room"
-            accessibilityHint="Sets the occupancy limit used by the occupancy alert rule"
-          />
-
-          <Text style={[styles.hint, dynamic.smallText]}>
-            Occupancy alert will activate once backend provides occupancy readings (or once you confirm the sensor key).
+            These toggles can be saved to the backend using “Save Settings to Server”.
           </Text>
         </View>
 
@@ -1025,7 +1108,7 @@ export default function AlertsScreen() {
               setSettings((p) => ({ ...p, heartbeatTimeoutSeconds: n }));
             }}
             accessibilityLabel="Heartbeat timeout in seconds"
-            accessibilityHint="Controls how long without a heartbeat triggers a critical alert"
+            accessibilityHint="Controls how long without a heartbeat triggers an alert"
           />
 
           <Text style={dynamic.inputLabel}>Battery low threshold (%)</Text>
@@ -1038,40 +1121,52 @@ export default function AlertsScreen() {
               setSettings((p) => ({ ...p, batteryLowPercent: n }));
             }}
             accessibilityLabel="Battery low threshold percentage"
-            accessibilityHint="Controls when the battery low alert triggers"
+            accessibilityHint="Controls when battery low triggers an alert"
+          />
+
+          <Text style={dynamic.inputLabel}>Maximum people per room</Text>
+          <TextInput
+            value={String(settings.maxPeoplePerRoom)}
+            keyboardType="numeric"
+            style={dynamic.input}
+            onChangeText={(t) => {
+              const n = clampNum(parseInt(t || '0', 10) || 0, 0, 999);
+              setSettings((p) => ({ ...p, maxPeoplePerRoom: n }));
+            }}
+            accessibilityLabel="Maximum people per room"
+            accessibilityHint="Controls occupancy limit used by the backend ROOM_LIMIT alert"
           />
         </View>
 
+        {/* Save settings to backend */}
         <TouchableOpacity
-          onPress={async () => {
-            if (!selectedNode) return;
-            log('CLEAR_LOG_START', selectedNode);
+          onPress={postBackendSettings}
+          style={[styles.saveServerButton]}
+          accessibilityRole="button"
+          accessibilityLabel="Save settings to server"
+          accessibilityHint="Sends alert settings to backend so they persist and affect node alerting"
+        >
+          <Ionicons name="cloud-upload-outline" size={18} color="#FFFFFF" />
+          <Text style={styles.saveServerButtonText}>Save Settings to Server</Text>
+        </TouchableOpacity>
 
-            setAlertLog([]);
-            setActiveAlerts([]);
-            try {
-              if (storageKeys.logKey) await AsyncStorage.removeItem(storageKeys.logKey);
-              if (storageKeys.lastHashKey) await AsyncStorage.removeItem(storageKeys.lastHashKey);
-            } catch (e) {
-              warn('CLEAR_LOG_FAIL', e);
-            }
-            AccessibilityInfo.announceForAccessibility?.('Alert log cleared');
-            Alert.alert('Cleared', 'Alert log cleared for this node.');
-            log('CLEAR_LOG_DONE');
-          }}
+        {/* Clear alerts */}
+        <TouchableOpacity
+          onPress={clearBackendAlerts}
           style={[styles.clearButton]}
           accessibilityRole="button"
-          accessibilityLabel="Clear alert log"
-          accessibilityHint="Removes stored alert history for the selected node"
+          accessibilityLabel="Clear alerts"
+          accessibilityHint="Clears backend alert list for this node"
         >
           <Ionicons name="trash-outline" size={18} color="#FFFFFF" />
-          <Text style={styles.clearButtonText}>Clear Alert Log</Text>
+          <Text style={styles.clearButtonText}>Clear Alerts</Text>
         </TouchableOpacity>
       </View>
     </ScrollView>
   );
 }
 
+// Styles
 const styles = StyleSheet.create({
   container: { flex: 1 },
 
@@ -1086,7 +1181,7 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: 14, marginTop: 4 },
 
   iconButton: {
-    padding: 10, // slightly larger touch target
+    padding: 10,
     marginLeft: 6,
     minWidth: 44,
     minHeight: 44,
@@ -1103,7 +1198,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 2,
     marginRight: 12,
-    minHeight: 44, // accessibility: target size
+    minHeight: 44,
     justifyContent: 'center',
   },
   nodeButtonActive: {},
@@ -1166,10 +1261,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     flex: 1,
-    minHeight: 44, // accessibility target size
+    minHeight: 44,
   },
-  primaryButton: { backgroundColor: '#1D4ED8' }, // higher contrast than #2563EB
-  successButton: { backgroundColor: '#047857' }, // higher contrast than #059669
+  primaryButton: { backgroundColor: '#1D4ED8' },
+  successButton: { backgroundColor: '#047857' },
   smallButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 13 },
 
   hint: { marginTop: 8, fontSize: 12, lineHeight: 16 },
@@ -1203,9 +1298,22 @@ const styles = StyleSheet.create({
     minHeight: 44,
   },
 
-  clearButton: {
+  saveServerButton: {
     marginTop: 18,
-    backgroundColor: '#B91C1C', // higher contrast red
+    backgroundColor: '#2563EB',
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    minHeight: 44,
+  },
+  saveServerButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 14 },
+
+  clearButton: {
+    marginTop: 12,
+    backgroundColor: '#B91C1C',
     paddingVertical: 12,
     borderRadius: 10,
     alignItems: 'center',
