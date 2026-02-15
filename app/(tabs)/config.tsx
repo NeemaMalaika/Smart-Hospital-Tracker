@@ -20,6 +20,7 @@ import {
 import { changeLanguage, SupportedLanguage } from '../../i18n';
 import { useAuthenticatedAPI } from '../../hooks/useAuthenticatedAPI';
 import ApiService from '../../services/api';
+import Toast from '../../components/toast';
 
 const API_BASE_URL = 'https://backend.smartenvironment.tech/api/v1';
 const API_ENDPOINTS = { NODES: '/node/list', NODE_CONFIG: '/node/config' };
@@ -89,25 +90,79 @@ export default function ConfigScreen() {
   const [showNewConfirmPassword, setShowNewConfirmPassword] = useState(false);
   const [isCreatingAdmin, setIsCreatingAdmin] = useState(false);
 
+  // Toast state
+  const [showToast, setShowToast] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+  const [toastType, setToastType] = useState<'success' | 'error' | 'info'>('success');
+
   const resetCreateAdminForm = () => { setNewUsername(''); setNewEmail(''); setNewPassword(''); setNewConfirmPassword(''); setShowNewPassword(false); setShowNewConfirmPassword(false); };
   const validateEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
   const handleCreateAdmin = async () => {
-    if (!newUsername.trim() || !newPassword.trim() || !newConfirmPassword.trim()) { Alert.alert(t('common.error', 'Error'), t('admin.createAdmin.validation.fillRequired')); return; }
-    if (newUsername.trim().length < 3) { Alert.alert(t('common.error', 'Error'), t('admin.createAdmin.validation.usernameMinLength')); return; }
-    if (newEmail.trim() && !validateEmail(newEmail)) { Alert.alert(t('common.error', 'Error'), t('admin.createAdmin.validation.invalidEmail')); return; }
-    if (newPassword.length < 8) { Alert.alert(t('common.error', 'Error'), t('admin.createAdmin.validation.passwordMinLength')); return; }
-    if (newPassword !== newConfirmPassword) { Alert.alert(t('common.error', 'Error'), t('admin.createAdmin.validation.passwordsMismatch')); return; }
+    if (!newUsername.trim() || !newPassword.trim() || !newConfirmPassword.trim()) { 
+      setToastMessage(t('admin.createAdmin.validation.fillRequired'));
+      setToastType('error');
+      setShowToast(true);
+      return; 
+    }
+    if (newUsername.trim().length < 3) { 
+      setToastMessage(t('admin.createAdmin.validation.usernameMinLength'));
+      setToastType('error');
+      setShowToast(true);
+      return; 
+    }
+    if (newEmail.trim() && !validateEmail(newEmail)) { 
+      setToastMessage(t('admin.createAdmin.validation.invalidEmail'));
+      setToastType('error');
+      setShowToast(true);
+      return; 
+    }
+    if (newPassword.length < 8) { 
+      setToastMessage(t('admin.createAdmin.validation.passwordMinLength'));
+      setToastType('error');
+      setShowToast(true);
+      return; 
+    }
+    if (newPassword !== newConfirmPassword) { 
+      setToastMessage(t('admin.createAdmin.validation.passwordsMismatch'));
+      setToastType('error');
+      setShowToast(true);
+      return; 
+    }
     setIsCreatingAdmin(true);
     try {
-      const response = await ApiService.createAccount({ username: newUsername.trim(), password: newPassword, email: newEmail.trim() || undefined });
+      const response = await ApiService.createAccount({ 
+        username: newUsername.trim(), 
+        password: newPassword, 
+        email: newEmail.trim() || undefined 
+      });
       if (response.success) {
-        Alert.alert(t('admin.createAdmin.successTitle'), t('admin.createAdmin.successMessage', { username: newUsername.trim() }), [{ text: 'OK', onPress: () => { setShowCreateAdmin(false); resetCreateAdminForm(); } }]);
+        setToastMessage(t('admin.createAdmin.successMessage', { username: newUsername.trim() }));
+        setToastType('success');
+        setShowToast(true);
+        setShowCreateAdmin(false);
+        resetCreateAdminForm();
       } else {
-        Alert.alert(t('admin.createAdmin.failedTitle'), response.message || t('admin.createAdmin.failedDefault'));
+        // Check if session expired
+        if (response.message?.includes('log in again') || response.message?.includes('expired')) {
+          setToastMessage(response.message);
+          setToastType('error');
+          setShowToast(true);
+          setShowCreateAdmin(false);
+          // Redirect to login after a short delay
+          setTimeout(() => {
+            router.replace('/login');
+          }, 2000);
+        } else {
+          setToastMessage(response.message || t('admin.createAdmin.failedDefault'));
+          setToastType('error');
+          setShowToast(true);
+        }
       }
     } catch (error) {
-      Alert.alert(t('common.error', 'Error'), t('admin.createAdmin.unexpectedError'));
+      setToastMessage(t('admin.createAdmin.unexpectedError'));
+      setToastType('error');
+      setShowToast(true);
     } finally { setIsCreatingAdmin(false); }
   };
 
@@ -238,6 +293,14 @@ export default function ConfigScreen() {
 
   return (
     <>
+      {/* Toast notification */}
+      <Toast
+        visible={showToast}
+        message={toastMessage}
+        type={toastType}
+        onHide={() => setShowToast(false)}
+      />
+
       <ScrollView style={dynamic.container}>
         {/* Header */}
         <View style={dynamic.header}>

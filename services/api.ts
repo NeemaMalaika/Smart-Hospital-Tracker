@@ -31,29 +31,29 @@ class ApiService {
   }
 
   /**
-   * Get stored auth token
+   * Get stored auth token 
    */
   private async getToken(): Promise<string | null> {
-    return await AsyncStorage.getItem('authToken');
+    return await AsyncStorage.getItem('sessionToken');
   }
 
   /**
-   * Save auth token and timestamp
+   * Save auth token and timestamp 
    */
   private async saveToken(token: string): Promise<void> {
     await AsyncStorage.multiSet([
-      ['authToken', token],
+      ['sessionToken', token],
       ['isAuthenticated', 'true'],
       ['tokenTimestamp', Date.now().toString()],
     ]);
   }
 
   /**
-   * Clear all auth data
+   * Clear all auth data 
    */
   private async clearAuth(): Promise<void> {
     await AsyncStorage.multiRemove([
-      'authToken',
+      'sessionToken', 
       'isAuthenticated',
       'username',
       'tokenTimestamp',
@@ -90,7 +90,7 @@ class ApiService {
     console.log('Hashed Password:', hashedPassword);
 
     // BUILD URL WITH QUERY PARAMETERS 
-    const url = `${API_BASE_URL}/api/v1/auth/login?username=${encodeURIComponent(credentials.username)}&hashedPassword=${encodeURIComponent(hashedPassword)}`; // ← ADD THIS LINE
+    const url = `${API_BASE_URL}/api/v1/auth/login?username=${encodeURIComponent(credentials.username)}&hashedPassword=${encodeURIComponent(hashedPassword)}`;
     
     console.log('URL:', url); 
 
@@ -137,7 +137,7 @@ class ApiService {
         // Save token and username
         await this.saveToken(data.token);
         await AsyncStorage.setItem('username', credentials.username);
-        console.log('Token saved successfully');
+        console.log('✅ Token saved as sessionToken successfully');
         return { success: true, token: data.token };
       } else {
         return {
@@ -156,40 +156,72 @@ class ApiService {
 
   /**
    * Create a new account (Admin only - requires authentication)
+   * 
+   * NOTE: Backend may return 400 status even when account is created successfully.
+   * We check both status code and response data to determine actual success.
    */
   async createAccount(credentials: CreateAccountCredentials): Promise<LoginResponse> {
     try {
       console.log('=== CREATE ACCOUNT REQUEST ===');
-      console.log('URL:', `${API_BASE_URL}/api/v1/auth/create-account`);
       
       // Get the current admin's token
       const token = await this.getToken();
       if (!token) {
+        console.error('❌ No token found in AsyncStorage');
         return {
           success: false,
           message: 'You must be logged in as an admin to create accounts',
         };
       }
       
-      console.log('Admin token found');
+      // Check if token is expired
+      const expired = await this.isTokenExpired();
+      if (expired) {
+        console.error('❌ Token has expired');
+        await this.clearAuth();
+        return {
+          success: false,
+          message: 'Your session has expired. Please log in again.',
+        };
+      }
+      
+      console.log('✅ Admin token found:', token.substring(0, 20) + '...');
+      console.log('✅ Token is valid and not expired');
       
       // Hash password on frontend using SHA256
       const hashedPassword = this.hashPassword(credentials.password);
-      console.log('Password hashed successfully');
+      console.log('✅ Password hashed successfully');
 
-      const requestBody = {
+      // Build request body
+      const requestBody: any = {
         username: credentials.username,
         hashedPassword: hashedPassword,
-        ...(credentials.email && { email: credentials.email }),
       };
+      
+      // Only include email if it's provided and not empty
+      if (credentials.email && credentials.email.trim()) {
+        requestBody.email = credentials.email.trim();
+      }
 
-      console.log('Request body (password hidden):', {
+      // ALSO build query parameters (in case backend expects both)
+      let url = `${API_BASE_URL}/api/v1/auth/create-account?username=${encodeURIComponent(credentials.username)}&hashedPassword=${encodeURIComponent(hashedPassword)}`;
+      if (credentials.email && credentials.email.trim()) {
+        url += `&email=${encodeURIComponent(credentials.email.trim())}`;
+      }
+
+      console.log('📤 Request URL:', url);
+      console.log('📤 Request body (password hidden):', {
         username: requestBody.username,
         hashedPassword: '***HIDDEN***',
-        email: requestBody.email || 'none',
+        email: requestBody.email || 'not provided',
+      });
+      console.log('📤 Headers:', {
+        'Content-Type': 'application/json',
+        'API-KEY': API_KEY.substring(0, 10) + '...',
+        'Authorization': `Bearer ${token.substring(0, 20)}...`,
       });
 
-      const response = await fetch(`${API_BASE_URL}/api/v1/auth/create-account`, {
+      const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -199,42 +231,55 @@ class ApiService {
         body: JSON.stringify(requestBody),
       });
 
-      console.log('Response status:', response.status);
+      console.log('📥 Response status:', response.status);
       
-      if (!response.ok) {
-        let errorMessage = 'Account creation failed';
-        
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.message || errorMessage;
-          console.log('Error Data:', errorData);
-        } catch (e) {
-          if (response.status === 401) {
-            errorMessage = 'Unauthorized. Admin access required.';
-          } else if (response.status === 409) {
-            errorMessage = 'Username already exists';
-          }
-        }
-
-        return {
-          success: false,
-          message: errorMessage,
-        };
+      // Try to parse response data regardless of status code
+      let data: any = null;
+      try {
+        data = await response.json();
+        console.log('📥 Response data:', data);
+      } catch (e) {
+        console.log('⚠️ Could not parse response JSON');
       }
-
-      const data: LoginResponse = await response.json();
-      console.log('Response data:', data);
-
-      if (data.success) {
+      
+      // Check if response indicates success (either through status or data)
+      if (response.ok || (data && data.success)) {
+        console.log('✅ Account created successfully!');
         return { success: true, message: 'Account created successfully' };
-      } else {
+      }
+      
+      // Handle 401 specifically - token might be invalid
+      if (response.status === 401) {
+        console.log('❌ 401 Unauthorized - clearing session and prompting re-login');
+        await this.clearAuth();
         return {
           success: false,
-          message: data.message || 'Account creation failed',
+          message: 'Authentication failed. Please log in again.',
         };
       }
+      
+      // Handle actual errors
+      let errorMessage = 'Account creation failed';
+      
+      if (data && data.message) {
+        errorMessage = data.message;
+      } else {
+        if (response.status === 409) {
+          errorMessage = 'Username already exists';
+        } else if (response.status === 400) {
+          // For 400 errors, still try to be helpful
+          errorMessage = 'Request error. However, the account may have been created. Try logging in with the credentials.';
+        }
+      }
+      
+      console.log('❌ Error:', errorMessage);
+      
+      return {
+        success: false,
+        message: errorMessage,
+      };
     } catch (error) {
-      console.error('Create account error:', error);
+      console.error('❌ Create account error:', error);
       return {
         success: false,
         message: 'Network error. Please check your connection.',
@@ -289,5 +334,3 @@ class ApiService {
 }
 
 export default new ApiService();
-
-
