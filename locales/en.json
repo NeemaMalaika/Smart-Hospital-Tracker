@@ -190,6 +190,7 @@
     "resolve": "Resolve",
     "attended": "Attended",
     "resolved": "Resolved",
+    "saveSettings": "Save Settings to Server",
     "clearLog": "Clear Alert Log",
     "clearLogTitle": "Cleared",
     "clearLogMessage": "Alert log cleared for this node.",
@@ -207,8 +208,11 @@
       "HUMIDITY": "Humidity out of range",
       "NOISE": "Noise too high",
       "BATTERY_LOW": "Battery low",
+      "BATTERY": "Battery low",
       "HEARTBEAT_MISSED": "Heartbeat missed",
+      "HEARTBEAT": "Heartbeat missed",
       "OCCUPANCY_HIGH": "Occupancy too high",
+      "ROOM_LIMIT": "Occupancy too high",
       "PRESSURE": "Pressure out of range",
       "LIGHT": "Light out of range"
     }

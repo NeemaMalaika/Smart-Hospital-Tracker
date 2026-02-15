@@ -138,7 +138,7 @@ export default function TabLayout() {
         }}
       />
 
-      {/* Summary Dashboard — first viewable tab, default afteradmin login */}
+      {/* Summary Dashboard — first viewable tab, default aft login */}
       <Tabs.Screen
         name="summary"
         options={{

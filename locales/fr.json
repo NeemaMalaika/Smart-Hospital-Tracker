@@ -190,6 +190,7 @@
     "resolve": "R\u00e9soudre",
     "attended": "Trait\u00e9",
     "resolved": "R\u00e9solu",
+    "saveSettings": "Enregistrer sur le serveur",
     "clearLog": "Effacer le journal",
     "clearLogTitle": "Effac\u00e9",
     "clearLogMessage": "Journal des alertes effac\u00e9 pour ce n\u0153ud.",
@@ -203,14 +204,17 @@
     "batteryThreshold": "Seuil de batterie faible (%)",
     "criticalActionsEnabled": "Actions critiques activ\u00e9es",
     "alertTypes": {
-      "TEMPERATURE": "Temp\u00e9rature hors plage",
-      "HUMIDITY": "Humidit\u00e9 hors plage",
-      "NOISE": "Bruit trop \u00e9lev\u00e9",
+      "TEMPERATURE": "Température hors plage",
+      "HUMIDITY": "Humidité hors plage",
+      "NOISE": "Bruit trop élevé",
       "BATTERY_LOW": "Batterie faible",
-      "HEARTBEAT_MISSED": "Signal manqu\u00e9",
-      "OCCUPANCY_HIGH": "Occupation trop \u00e9lev\u00e9e",
+      "BATTERY": "Batterie faible",
+      "HEARTBEAT_MISSED": "Signal manqué",
+      "HEARTBEAT": "Signal manqué",
+      "OCCUPANCY_HIGH": "Occupation trop élevée",
+      "ROOM_LIMIT": "Occupation trop élevée",
       "PRESSURE": "Pression hors plage",
-      "LIGHT": "Lumi\u00e8re hors plage"
+      "LIGHT": "Lumière hors plage"
     }
   },
   "map": {
