@@ -89,6 +89,30 @@ export const FloorPlanMap = ({
   const roomDragLast = useRef<{ x: number; y: number } | null>(null);
   const resizeDragLast = useRef<{ x: number; y: number } | null>(null);
 
+  const containerRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !containerRef.current) return;
+
+    const node = containerRef.current;
+
+    const wheelListener = (e: WheelEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+      // @ts-ignore
+      const newScale = baseScale._value * zoomFactor;
+      baseScale.setValue(Math.max(0.5, Math.min(newScale, 4)));
+    };
+
+    node.addEventListener('wheel', wheelListener, { passive: false });
+
+    return () => {
+      node.removeEventListener('wheel', wheelListener);
+    };
+  }, []);
+
   useEffect(() => {
     if (Platform.OS !== 'web' || !editable) return;
     
@@ -128,14 +152,6 @@ export const FloorPlanMap = ({
     }
   };
 
-  const handleWheel = (e: any) => {
-    if (Platform.OS === 'web') {
-      const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
-      // @ts-ignore
-      const newScale = baseScale._value * zoomFactor;
-      baseScale.setValue(Math.max(0.5, Math.min(newScale, 4)));
-    }
-  };
 
   const allPoints = rooms.flatMap(r => r.polygon);
   const minX = allPoints.length > 0 ? Math.min(...allPoints.map(p => p.x)) - 5 : 0;
@@ -173,8 +189,7 @@ export const FloorPlanMap = ({
         <Animated.View style={{ flex: 1 }}>
           <PinchGestureHandler onGestureEvent={onPinchEvent} onHandlerStateChange={onPinchStateChange}>
             <Animated.View 
-              // @ts-ignore
-              onWheel={handleWheel}
+              ref={containerRef}
               style={{ flex: 1, transform: [{ translateX }, { translateY }, { scale }] }}
             >
               <Svg 
