@@ -49,6 +49,7 @@ export default function AdminMapEditor({ route }: any) {
   const [isLoading, setIsLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [pastedJson, setPastedJson] = useState('');
+  const [floorInput, setFloorInput] = useState<string>('0');
 
   const handleLoadFromBackend = async () => {
     if (!isTokenLoaded) {
@@ -58,7 +59,7 @@ export default function AdminMapEditor({ route }: any) {
 
     setIsLoading(true);
     try {
-      const response = await authenticatedFetch(`${API_BASE_URL}/node/map?floor=0`, {
+      const response = await authenticatedFetch(`${API_BASE_URL}/node/map?floor=${floorInput || 0}`, {
         method: 'GET',
       });
 
@@ -102,7 +103,7 @@ export default function AdminMapEditor({ route }: any) {
 
     try {
       const payload = { rooms }; 
-      const response = await authenticatedFetch(`${API_BASE_URL}/node/map?floor=0`, {
+      const response = await authenticatedFetch(`${API_BASE_URL}/node/map?floor=${floorInput || 0}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -231,6 +232,28 @@ export default function AdminMapEditor({ route }: any) {
           <View>
             <Text style={styles.headerTitle}>Map Editor</Text>
             <Text style={styles.headerSubtitle}>Customise floor plan</Text>
+            <View style={{ marginTop: 6 }}>
+              <Text style={{ fontSize: 12, color: '#6B7280', marginBottom: 2 }}>
+                Floor
+              </Text>
+              <TextInput
+                style={{
+                  backgroundColor: '#F9FAFB',
+                  borderWidth: 1,
+                  borderColor: '#E5E7EB',
+                  borderRadius: 6,
+                  paddingHorizontal: 8,
+                  paddingVertical: 4,
+                  fontSize: 12,
+                  width: 80,
+                  color: '#111827'
+                }}
+                keyboardType="numeric"
+                value={floorInput}
+                onChangeText={setFloorInput}
+                placeholder="0"
+              />
+            </View>
           </View>
         </View>
         
