@@ -37,6 +37,8 @@ const HospitalFloorPlan = ({ navigation }: any) => {
   const [animatingNodes, setAnimatingNodes] = useState({});
   const [rooms, setRooms] = useState<Room[]>([]);
   const [isMapLoading, setIsMapLoading] = useState(true);
+  const [selectedFloor, setSelectedFloor] = useState<number>(0);
+  const [floorInput, setFloorInput] = useState<string>('0');
 
   // ── Search for staff ──────────────────────────────────
   const [staffSearchQuery, setStaffSearchQuery] = useState('');
@@ -53,7 +55,7 @@ const HospitalFloorPlan = ({ navigation }: any) => {
       if (!isTokenLoaded) return;
       try {
         setIsMapLoading(true);
-        const response = await authenticatedFetch(`${API_BASE_URL}/node/map?floor=0`, { method: 'GET' });
+        const response = await authenticatedFetch(`${API_BASE_URL}/node/map?floor=${selectedFloor}`, { method: 'GET' });
         if (response.ok) {
           let data = await response.json();
           if (typeof data === 'string') { try { data = JSON.parse(data); } catch (e) { console.error('Could not parse map data string:', e); } }
@@ -66,7 +68,7 @@ const HospitalFloorPlan = ({ navigation }: any) => {
       finally { setIsMapLoading(false); }
     };
     loadMapData();
-  }, [isTokenLoaded]);
+  }, [isTokenLoaded, selectedFloor]);
 
   // ============================================================================
   // FETCH NODES  
@@ -349,6 +351,35 @@ const HospitalFloorPlan = ({ navigation }: any) => {
 
       {/* FLOOR PLAN */}
       <View style={[styles.section, dynamicStyles.card]}>
+        {/* FLOOR INPUT */}
+        <View style={{ marginBottom: 12 }}>
+          <Text style={[styles.sectionLabel, dynamicStyles.text]}>
+            Enter Floor Number
+          </Text>
+          <TextInput
+            style={dynamicStyles.searchInput}
+            keyboardType="numeric"
+            value={floorInput}
+            onChangeText={(text) => {
+              setFloorInput(text);
+
+              if (text === '') return;
+
+              const floorNumber = parseInt(text, 10);
+              if (!isNaN(floorNumber)) {
+                setSelectedFloor(floorNumber);
+              }
+            }}
+            onBlur={() => {
+              if (floorInput === '') {
+                setFloorInput('0');
+                setSelectedFloor(0);
+              }
+            }}
+            placeholder="Enter floor number"
+            placeholderTextColor={isDarkMode ? '#6B7280' : '#9CA3AF'}
+          />
+        </View>
         <View style={styles.sectionHeader}>
           <Ionicons name="map" size={24} color="#3b82f6" />
           <Text style={[styles.sectionTitle, dynamicStyles.text]}>{t('map.liveFloorPlan')}</Text>
