@@ -58,7 +58,7 @@ export default function AdminMapEditor({ route }: any) {
 
     setIsLoading(true);
     try {
-      const response = await authenticatedFetch(`${API_BASE_URL}/node/map`, {
+      const response = await authenticatedFetch(`${API_BASE_URL}/node/map?floor=0`, {
         method: 'GET',
       });
 
@@ -102,7 +102,7 @@ export default function AdminMapEditor({ route }: any) {
 
     try {
       const payload = { rooms }; 
-      const response = await authenticatedFetch(`${API_BASE_URL}/node/map`, {
+      const response = await authenticatedFetch(`${API_BASE_URL}/node/map?floor=0`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

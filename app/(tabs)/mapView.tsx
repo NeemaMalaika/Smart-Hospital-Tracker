@@ -1,7 +1,7 @@
 import { FloorPlanMap, Room } from '@/components/FloorPlanMap';
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
-import { useTranslation } from 'react-i18next'; 
+import { useTranslation } from 'react-i18next';
 import {
   ActivityIndicator,
   Platform,
@@ -53,7 +53,7 @@ const HospitalFloorPlan = ({ navigation }: any) => {
       if (!isTokenLoaded) return;
       try {
         setIsMapLoading(true);
-        const response = await authenticatedFetch(`${API_BASE_URL}/node/map`, { method: 'GET' });
+        const response = await authenticatedFetch(`${API_BASE_URL}/node/map?floor=0`, { method: 'GET' });
         if (response.ok) {
           let data = await response.json();
           if (typeof data === 'string') { try { data = JSON.parse(data); } catch (e) { console.error('Could not parse map data string:', e); } }
