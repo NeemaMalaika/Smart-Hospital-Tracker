@@ -38,7 +38,9 @@ const HospitalFloorPlan = ({ navigation }: any) => {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [isMapLoading, setIsMapLoading] = useState(true);
   const [selectedFloor, setSelectedFloor] = useState<number>(0);
-  const [floorInput, setFloorInput] = useState<string>('0');
+  const [availableFloors, setAvailableFloors] = useState<number[]>([]);
+  const [floorSearchQuery, setFloorSearchQuery] = useState<string>('');
+  const [isFloorDropdownOpen, setIsFloorDropdownOpen] = useState<boolean>(false);
 
   // ── Search for staff ──────────────────────────────────
   const [staffSearchQuery, setStaffSearchQuery] = useState('');
@@ -50,6 +52,27 @@ const HospitalFloorPlan = ({ navigation }: any) => {
   // ============================================================================
   // LOAD MAP 
   // ============================================================================
+  useEffect(() => {
+    const fetchFloors = async () => {
+      if (!isTokenLoaded) return;
+      try {
+        const response = await authenticatedFetch(`${API_BASE_URL}/node/map-floors`, { method: 'GET' });
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        const data = await response.json();
+        const floorsArray: number[] = Array.isArray(data) ? data : (data.data || []);
+        setAvailableFloors(floorsArray);
+
+        if (floorsArray.length > 0 && !floorsArray.includes(selectedFloor)) {
+          setSelectedFloor(floorsArray[0]);
+        }
+      } catch (err) {
+        console.error('Error fetching floors:', err);
+      }
+    };
+
+    fetchFloors();
+  }, [isTokenLoaded]);
+
   useEffect(() => {
     const loadMapData = async () => {
       if (!isTokenLoaded) return;
@@ -351,34 +374,82 @@ const HospitalFloorPlan = ({ navigation }: any) => {
 
       {/* FLOOR PLAN */}
       <View style={[styles.section, dynamicStyles.card]}>
-        {/* FLOOR INPUT */}
-        <View style={{ marginBottom: 12 }}>
+        {/* FLOOR SELECTOR WITH SEARCH */}
+        <View style={{ marginBottom: 12, zIndex: 1000 }}>
           <Text style={[styles.sectionLabel, dynamicStyles.text]}>
-            Enter Floor Number
+            Select Floor
           </Text>
-          <TextInput
-            style={dynamicStyles.searchInput}
-            keyboardType="numeric"
-            value={floorInput}
-            onChangeText={(text) => {
-              setFloorInput(text);
 
-              if (text === '') return;
+          <View style={{ position: 'relative' }}>
+            <Ionicons
+              name="search"
+              size={18}
+              color={isDarkMode ? '#9CA3AF' : '#6B7280'}
+              style={{ position: 'absolute', left: 10, top: 11, zIndex: 1 }}
+              accessible={false}
+            />
 
-              const floorNumber = parseInt(text, 10);
-              if (!isNaN(floorNumber)) {
-                setSelectedFloor(floorNumber);
-              }
-            }}
-            onBlur={() => {
-              if (floorInput === '') {
-                setFloorInput('0');
-                setSelectedFloor(0);
-              }
-            }}
-            placeholder="Enter floor number"
-            placeholderTextColor={isDarkMode ? '#6B7280' : '#9CA3AF'}
-          />
+            <TextInput
+              style={dynamicStyles.searchInput}
+              placeholder="Search floors"
+              placeholderTextColor={isDarkMode ? '#6B7280' : '#9CA3AF'}
+              value={floorSearchQuery}
+              onChangeText={setFloorSearchQuery}
+              onFocus={() => setIsFloorDropdownOpen(true)}
+              accessibilityLabel="Search for floors"
+              accessibilityRole="search"
+              autoCorrect={false}
+              autoCapitalize="none"
+              returnKeyType="search"
+            />
+          </View>
+
+          {isFloorDropdownOpen && availableFloors.length > 0 && (
+            <View
+              style={[dynamicStyles.dropdownMenu, { marginTop: 4 }]}
+              accessibilityRole="menu"
+            >
+              <ScrollView style={{ maxHeight: 220 }} nestedScrollEnabled>
+                {availableFloors
+                  .filter((floor) =>
+                    String(floor)
+                      .toLowerCase()
+                      .includes(floorSearchQuery.toLowerCase())
+                  )
+                  .map((floor) => {
+                    const isSelected = floor === selectedFloor;
+                    return (
+                      <TouchableOpacity
+                        key={floor}
+                        onPress={() => {
+                          setSelectedFloor(floor);
+                          setFloorSearchQuery('');
+                          setIsFloorDropdownOpen(false);
+                        }}
+                        style={[
+                          dynamicStyles.dropdownItem,
+                          isSelected && dynamicStyles.dropdownItemActive,
+                        ]}
+                        accessibilityRole="menuitem"
+                        accessibilityLabel={`Select floor ${floor}`}
+                        accessibilityState={{ selected: isSelected }}
+                      >
+                        <Text style={dynamicStyles.dropdownItemText}>
+                          Floor {floor}
+                        </Text>
+                        {isSelected && (
+                          <Ionicons
+                            name="checkmark"
+                            size={18}
+                            color={isDarkMode ? '#60A5FA' : '#2563EB'}
+                          />
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+              </ScrollView>
+            </View>
+          )}
         </View>
         <View style={styles.sectionHeader}>
           <Ionicons name="map" size={24} color="#3b82f6" />
