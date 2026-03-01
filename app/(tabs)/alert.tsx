@@ -29,6 +29,9 @@ const API_ENDPOINTS = {
   ALERTS_CLEAR: '/alerts/clear',
   ALERTS_SETTINGS_GET: '/alerts/settings',
   ALERTS_SETTINGS_POST: '/alerts/settings',
+
+  // ✅ NEW (Sprint 3): backend endpoint to trigger a custom alert
+  ALERTS_TRIGGER: '/alerts/trigger',
 };
 
 // Types
@@ -164,7 +167,11 @@ function clampNum(v: number, min: number, max: number) {
 }
 
 // Maps backend alert shape → AlertLogItem[]
-function mapBackendAlertsToLog(nodeId: string, nodeName: string, alertsByType: Record<string, any>): AlertLogItem[] {
+function mapBackendAlertsToLog(
+  nodeId: string,
+  nodeName: string,
+  alertsByType: Record<string, any>
+): AlertLogItem[] {
   const out: AlertLogItem[] = [];
   if (!alertsByType || typeof alertsByType !== 'object') return out;
 
@@ -199,7 +206,7 @@ function mapBackendAlertsToLog(nodeId: string, nodeName: string, alertsByType: R
   return out;
 }
 
-// Component 
+// Component
 export default function AlertsScreen() {
   const router = useRouter();
   const { t } = useTranslation();
@@ -234,7 +241,16 @@ export default function AlertsScreen() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isPollingRef = useRef<boolean>(false);
 
-  // ── Auth + Theme 
+  // ✅ NEW (Sprint 3): manual custom alert controls
+  const [manualType, setManualType] = useState<AlertType>('ROOM_LIMIT');
+  const [manualSeverity, setManualSeverity] = useState<Severity>('WARNING');
+  const [manualMessage, setManualMessage] = useState('');
+  const [manualFlash, setManualFlash] = useState(true);
+  const [manualSound, setManualSound] = useState(false);
+  const [manualFan, setManualFan] = useState(false);
+  const [isTriggering, setIsTriggering] = useState(false);
+
+  // ── Auth + Theme
   useEffect(() => {
     (async () => {
       try {
@@ -288,7 +304,7 @@ export default function AlertsScreen() {
     });
   };
 
-  // Node Fetch 
+  // Node Fetch
   const fetchNodes = async () => {
     setIsLoadingNodes(true);
     try {
@@ -333,7 +349,7 @@ export default function AlertsScreen() {
     [nodes, nodeSearchQuery]
   );
 
-  // ── Storage Keys 
+  // ── Storage Keys
   const storageKeys = useMemo(() => {
     if (!selectedNode) return { settingsKey: null, logKey: null };
     return { settingsKey: `alertSettings:${selectedNode}`, logKey: `alertLog:${selectedNode}` };
@@ -451,7 +467,7 @@ export default function AlertsScreen() {
     }
   };
 
-  // ── Fetch alerts 
+  // ── Fetch alerts
   const fetchBackendAlerts = async () => {
     if (!selectedNode) return;
 
@@ -481,7 +497,7 @@ export default function AlertsScreen() {
     log('ALERTS_LIST_OK', { log: mapped.length, active: actives.length });
   };
 
-  // ── Backend: post settings 
+  // ── Backend: post settings
   const postBackendSettings = async () => {
     if (!selectedNode) return;
 
@@ -604,7 +620,56 @@ export default function AlertsScreen() {
     Alert.alert(t('alerts.clearLogTitle'), t('alerts.clearLogMessage'));
   };
 
-  // Refresh orchestration 
+  // trigger a custom alert to a pico via backend
+  const triggerCustomAlert = async () => {
+    if (!selectedNode) {
+      Alert.alert('Error', 'Please select a node first.');
+      return;
+    }
+
+    setIsTriggering(true);
+
+    try {
+      const payload = {
+        type: manualType,
+        severity: manualSeverity,
+        message: manualMessage?.trim() || `Manual ${manualType} (${manualSeverity})`,
+        actions: {
+          flash: manualFlash,
+          sound: manualSound,
+          fan: manualFan,
+        },
+      };
+
+      const res = await adminFetch(
+        `${API_BASE_URL}${API_ENDPOINTS.ALERTS_TRIGGER}?nodeId=${encodeURIComponent(selectedNode)}`,
+        { method: 'POST', body: JSON.stringify(payload) }
+      );
+
+      if (res.status === 401) {
+        Alert.alert('Unauthorized', 'Please login again.');
+        return;
+      }
+
+      if (!res.ok) {
+        const txt = await res.text();
+        warn('ALERTS_TRIGGER_FAIL', res.status, txt);
+        Alert.alert('Error', 'Failed to trigger alert (backend rejected request).');
+        return;
+      }
+
+      Alert.alert('Success', 'Custom alert triggered.');
+      setManualMessage('');
+      await fetchBackendAlerts();
+    } catch (e) {
+      warn('ALERTS_TRIGGER_EXCEPTION', e);
+      Alert.alert('Error', 'Network error while triggering alert.');
+    } finally {
+      setIsTriggering(false);
+    }
+  };
+
+  // Refresh orchestration
   const refreshAll = async () => {
     if (!selectedNode) return;
 
@@ -670,7 +735,7 @@ export default function AlertsScreen() {
     }, [selectedNode])
   );
 
-  // Accessibility announcements 
+  // Accessibility announcements
   useEffect(() => {
     if (!isMountedRef.current) {
       isMountedRef.current = true;
@@ -772,7 +837,11 @@ export default function AlertsScreen() {
 
   // Render
   return (
-    <ScrollView style={dynamic.container} contentContainerStyle={{ paddingBottom: 24 }} accessibilityLabel="Alerts screen">
+    <ScrollView
+      style={dynamic.container}
+      contentContainerStyle={{ paddingBottom: 24 }}
+      accessibilityLabel="Alerts screen"
+    >
       {/* Header */}
       <View style={dynamic.header} accessible accessibilityRole="header">
         <View style={{ flex: 1 }}>
@@ -789,7 +858,11 @@ export default function AlertsScreen() {
           accessibilityLabel={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
-          <Ionicons name={isDarkMode ? 'sunny' : 'moon'} size={22} color={isDarkMode ? '#FBBF24' : '#6B7280'} />
+          <Ionicons
+            name={isDarkMode ? 'sunny' : 'moon'}
+            size={22}
+            color={isDarkMode ? '#FBBF24' : '#6B7280'}
+          />
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -877,7 +950,9 @@ export default function AlertsScreen() {
                     accessibilityState={{ selected: isSelected }}
                   >
                     <Text style={dynamic.dropdownItemText}>{name}</Text>
-                    {isSelected && <Ionicons name="checkmark" size={18} color={isDarkMode ? '#60A5FA' : '#2563EB'} />}
+                    {isSelected && (
+                      <Ionicons name="checkmark" size={18} color={isDarkMode ? '#60A5FA' : '#2563EB'} />
+                    )}
                   </TouchableOpacity>
                 );
               })}
@@ -1046,6 +1121,108 @@ export default function AlertsScreen() {
         )}
       </View>
 
+      {/* Manual / Custom Alert Trigger */}
+      <View style={dynamic.card} accessibilityLabel={`Manual alert trigger for ${selectedNodeName}`}>
+        <View style={styles.cardHeader}>
+          <Ionicons name="flash-outline" size={22} color={isDarkMode ? '#60A5FA' : '#2563EB'} />
+          <Text style={dynamic.cardTitle}>Manual Alert</Text>
+        </View>
+
+        <Text style={dynamic.sectionLabel}>Alert type</Text>
+        <View style={dynamic.divider} />
+
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+          {(['ROOM_LIMIT', 'HEARTBEAT', 'BATTERY', 'NOISE', 'TEMPERATURE'] as AlertType[]).map((tpe) => {
+            const active = manualType === tpe;
+            return (
+              <TouchableOpacity
+                key={tpe}
+                onPress={() => setManualType(tpe)}
+                style={[
+                  styles.pill,
+                  { backgroundColor: active ? '#2563EB' : isDarkMode ? '#374151' : '#F3F4F6' },
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel={`Select manual alert type ${tpe}`}
+                accessibilityState={{ selected: active }}
+              >
+                <Text style={{ color: active ? '#FFFFFF' : isDarkMode ? '#E5E7EB' : '#111827', fontWeight: '700' }}>
+                  {tpe}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <Text style={[dynamic.sectionLabel, { marginTop: 14 }]}>Severity</Text>
+        <View style={dynamic.divider} />
+
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          {(['WARNING', 'CRITICAL'] as Severity[]).map((sev) => {
+            const active = manualSeverity === sev;
+            return (
+              <TouchableOpacity
+                key={sev}
+                onPress={() => setManualSeverity(sev)}
+                style={[
+                  styles.pill,
+                  {
+                    flex: 1,
+                    alignItems: 'center',
+                    backgroundColor: active ? '#047857' : isDarkMode ? '#374151' : '#F3F4F6',
+                  },
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel={`Select severity ${sev}`}
+                accessibilityState={{ selected: active }}
+              >
+                <Text style={{ color: active ? '#FFFFFF' : isDarkMode ? '#E5E7EB' : '#111827', fontWeight: '800' }}>
+                  {sev}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <Text style={[dynamic.inputLabel, { marginTop: 12 }]}>Custom message (optional)</Text>
+        <TextInput
+          value={manualMessage}
+          onChangeText={setManualMessage}
+          style={dynamic.input}
+          placeholder="e.g., Triggered by admin test"
+          placeholderTextColor={isDarkMode ? '#6B7280' : '#9CA3AF'}
+          accessibilityLabel="Manual alert custom message"
+        />
+
+        <Text style={[dynamic.sectionLabel, { marginTop: 14 }]}>Actions to enable</Text>
+        <View style={dynamic.divider} />
+
+        <View style={styles.toggleRow}>
+          <Text style={[styles.toggleLabel, dynamic.bodyText]}>Lights / Flash</Text>
+          <Switch value={manualFlash} onValueChange={setManualFlash} accessibilityLabel="Toggle flash action" />
+        </View>
+        <View style={styles.toggleRow}>
+          <Text style={[styles.toggleLabel, dynamic.bodyText]}>Sound</Text>
+          <Switch value={manualSound} onValueChange={setManualSound} accessibilityLabel="Toggle sound action" />
+        </View>
+        <View style={styles.toggleRow}>
+          <Text style={[styles.toggleLabel, dynamic.bodyText]}>Fan</Text>
+          <Switch value={manualFan} onValueChange={setManualFan} accessibilityLabel="Toggle fan action" />
+        </View>
+
+        <TouchableOpacity
+          onPress={triggerCustomAlert}
+          disabled={isTriggering || !selectedNode}
+          style={[styles.saveServerButton, { opacity: isTriggering || !selectedNode ? 0.6 : 1 }]}
+          accessibilityRole="button"
+          accessibilityLabel="Trigger custom alert"
+          accessibilityHint="Sends a custom alert request to the backend for the selected node"
+        >
+          <Ionicons name="send-outline" size={18} color="#FFFFFF" />
+          <Text style={styles.saveServerButtonText}>{isTriggering ? 'Triggering…' : 'Trigger Alert'}</Text>
+        </TouchableOpacity>
+      </View>
+
       {/* Settings */}
       <View style={dynamic.card} accessibilityLabel={`Alert settings for ${selectedNodeName}`}>
         <View style={styles.cardHeader}>
@@ -1060,9 +1237,7 @@ export default function AlertsScreen() {
           <View key={row.type} style={styles.toggleRow}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
               <Ionicons name={row.icon} size={18} color={isDarkMode ? '#93C5FD' : '#2563EB'} />
-              <Text style={[styles.toggleLabel, dynamic.bodyText]}>
-                {t(`alerts.alertTypes.${row.type}` as any)}
-              </Text>
+              <Text style={[styles.toggleLabel, dynamic.bodyText]}>{t(`alerts.alertTypes.${row.type}` as any)}</Text>
             </View>
             <Switch
               value={!!settings.enabled[row.type]}
@@ -1209,8 +1384,22 @@ const styles = StyleSheet.create({
   searchContainerPhone: { position: 'relative', width: '100%' },
   searchContainerLaptop: { position: 'relative', flex: 1, maxWidth: 400 },
   searchIcon: { position: 'absolute', left: 10, top: 11, zIndex: 1 },
-  searchInput: { paddingLeft: 36, paddingRight: 12, paddingVertical: 10, borderRadius: 8, borderWidth: 1, fontSize: 14 },
-  selectedChip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 8 },
+  searchInput: {
+    paddingLeft: 36,
+    paddingRight: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    fontSize: 14,
+  },
+  selectedChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
   selectedChipText: { color: '#FFFFFF', fontSize: 13, fontWeight: '600' },
   dropdownMenu: {
     borderRadius: 8,
@@ -1286,7 +1475,14 @@ const styles = StyleSheet.create({
   toggleLabel: { fontSize: 14, fontWeight: '600' },
 
   inputLabel: { fontSize: 13, fontWeight: '600', marginBottom: 6, marginTop: 10 },
-  input: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 12, fontSize: 14, minHeight: 44 },
+  input: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    fontSize: 14,
+    minHeight: 44,
+  },
 
   saveServerButton: {
     marginTop: 18,
@@ -1315,4 +1511,13 @@ const styles = StyleSheet.create({
   clearButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 14 },
 
   centerText: { textAlign: 'center', marginTop: 10 },
+
+  // small pill button style used in Manual Alert section
+  pill: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 999,
+    minHeight: 40,
+    justifyContent: 'center',
+  },
 });
