@@ -31,7 +31,7 @@ const API_ENDPOINTS = {
   ALERTS_SETTINGS_POST: '/alerts/settings',
 
   // ✅ NEW (Sprint 3): backend endpoint to trigger a custom alert
-  ALERTS_TRIGGER: '/alerts/trigger',
+  ALERTS_TRIGGER: '/alerts/manual',
 };
 
 // Types

@@ -374,7 +374,6 @@ const HospitalFloorPlan = ({ navigation }: any) => {
 
       {/* FLOOR PLAN */}
       <View style={[styles.section, dynamicStyles.card]}>
-        {/* FLOOR SELECTOR WITH SEARCH */}
         <View style={{ marginBottom: 12, zIndex: 1000 }}>
           <Text style={[styles.sectionLabel, dynamicStyles.text]}>
             Select Floor
