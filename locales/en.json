@@ -218,7 +218,7 @@
     }
   },
   "map": {
-    "title": "Hospital Location Tracker",
+    "title": "Location Tracker",
     "subtitle": "Real-time staff tracking",
     "selectStaff": "Select Staff Member",
     "searchPlaceholder": "Search staff\u2026",

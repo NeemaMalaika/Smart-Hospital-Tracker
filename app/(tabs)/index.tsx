@@ -2,7 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { useTranslation } from 'react-i18next'; 
+import { useTranslation } from 'react-i18next';
+import { API_BASE, API_KEY } from '../../config';
 import {
   ActivityIndicator,
   Alert,
@@ -17,6 +18,7 @@ import {
 } from 'react-native';
 import { LineChart } from 'react-native-chart-kit';
 import { useAuthenticatedAPI } from '../../hooks/useAuthenticatedAPI';
+//import { API_BASE } from '@/config';
 
 // TYPE DEFINITIONS  
 // ============================================================================
@@ -35,7 +37,7 @@ interface TimeRange { id: string; label: string; minutes: number }
 // API CONFIGURATION 
 // ============================================================================
 const API_CONFIG: APIConfig = {
-  BASE_URL: 'https://backend.smartenvironment.tech/api/v1',
+  BASE_URL: API_BASE,
   ENDPOINTS: { NODES: '/node/list', CURRENT_SENSORS: '/sensors/current', SENSOR_HISTORY: '/sensors/history' },
   POLLING_INTERVAL: 30000,
 };
@@ -64,11 +66,181 @@ const SENSOR_DEFINITIONS: SensorDefinition[] = [
 
 const DEFAULT_CONFIG: Config = { systemName: 'Environmental Monitor', entityName: 'Node', entityPlural: 'Nodes' };
 
+
+// ============================================================================
+// SENSOR CARD COMPONENT — defined outside parent to prevent remount on re-render
+// ============================================================================
+interface SensorCardProps {
+  sensor: SensorDefinition;
+  sensorData: SensorData;
+  historyData: HistoryData;
+  selectedTimeRanges: string[];
+  isDarkMode: boolean;
+  editingSensor: string | null;
+  customThresholds: { [sensorId: string]: SensorThresholds };
+  chartWidth: number;
+  chartHeight: number;
+  isPhone: boolean;
+  dynamicStyles: any;
+  t: (key: any, opts?: any) => string;
+  onEditToggle: (sensor: SensorDefinition) => void;
+  onSave: (sensorId: string, inputs: { min: string; max: string; critical: string }) => void;
+  onReset: (sensor: SensorDefinition) => void;
+  getStatus: (value: number | null | undefined, sensor: SensorDefinition) => Status;
+  getEffectiveThresholds: (sensor: SensorDefinition) => SensorThresholds;
+}
+
+const SensorCard: React.FC<SensorCardProps> = ({
+  sensor, sensorData, historyData, selectedTimeRanges, isDarkMode,
+  editingSensor, customThresholds, chartWidth, chartHeight, isPhone,
+  dynamicStyles, t, onEditToggle, onSave, onReset,
+  getStatus, getEffectiveThresholds,
+}) => {
+  const value = sensorData[sensor.id];
+  const status = getStatus(value, sensor);
+  const isEditing = editingSensor === sensor.id;
+  const effectiveThresholds = getEffectiveThresholds(sensor);
+  const hasCustomThresholds = !!customThresholds[sensor.id];
+  const translatedName = t(`monitoring.sensorNames.${sensor.id}` as any);
+  const currentReadingText = value !== null && value !== undefined
+    ? `${value.toFixed(sensor.decimalPlaces)} ${sensor.unit}`
+    : t('common.noDataAvailable');
+
+  // Local state for threshold inputs — stays stable between parent re-renders
+  const [localInputs, setLocalInputs] = useState({
+    min: String(effectiveThresholds.min),
+    max: String(effectiveThresholds.max),
+    critical: String(effectiveThresholds.critical),
+  });
+
+  // Sync local inputs when editing is opened for this sensor
+  useEffect(() => {
+    if (isEditing) {
+      setLocalInputs({
+        min: String(effectiveThresholds.min),
+        max: String(effectiveThresholds.max),
+        critical: String(effectiveThresholds.critical),
+      });
+    }
+  }, [isEditing]);
+
+  return (
+    <View style={[dynamicStyles.card, isPhone && styles.cardPhone]} accessible={true} accessibilityLabel={`${translatedName} sensor. Current reading: ${currentReadingText}. Status: ${status.label}`}>
+      <View style={styles.cardHeader} accessible={true} accessibilityRole="header" accessibilityLabel={`${translatedName} sensor data`}>
+        <Ionicons name={sensor.icon} size={20} color={sensor.color} importantForAccessibility="no-hide-descendants" accessible={false} />
+        <Text style={dynamicStyles.cardTitle} importantForAccessibility="no-hide-descendants">{translatedName}</Text>
+        <TouchableOpacity onPress={() => onEditToggle(sensor)} style={styles.thresholdEditButton}
+          accessibilityRole="button" accessibilityLabel={isEditing ? `Close threshold editor for ${translatedName}` : `Edit alert thresholds for ${translatedName}`}
+          accessibilityHint={isEditing ? 'Double tap to close the threshold editor' : 'Double tap to open threshold editor'}
+          accessibilityState={{ expanded: isEditing }}>
+          <Ionicons name={isEditing ? 'close-circle-outline' : 'options-outline'} size={18} color={hasCustomThresholds ? '#3B82F6' : isDarkMode ? '#9CA3AF' : '#6B7280'} importantForAccessibility="no-hide-descendants" accessible={false} />
+        </TouchableOpacity>
+      </View>
+
+      {isEditing && (
+        <View style={dynamicStyles.thresholdPanel} accessible={true} accessibilityLabel={`Threshold editor for ${translatedName}. Current values: minimum ${effectiveThresholds.min}, maximum ${effectiveThresholds.max}, critical ${effectiveThresholds.critical}`}>
+          <Text style={[styles.thresholdPanelTitle, { color: isDarkMode ? '#F9FAFB' : '#111827' }]} accessibilityRole="header" importantForAccessibility="no-hide-descendants">
+            {t('monitoring.alertThresholds', { unit: sensor.unit })}
+          </Text>
+          <View style={styles.thresholdRow}>
+            <View style={styles.thresholdField}>
+              <Text style={dynamicStyles.thresholdLabel} importantForAccessibility="no-hide-descendants">{t('monitoring.minLabel')}</Text>
+              <TextInput
+                style={dynamicStyles.thresholdInput}
+                value={localInputs.min}
+                onChangeText={(v) => setLocalInputs((prev) => ({ ...prev, min: v }))}
+                keyboardType="numeric"
+                accessibilityLabel={`Minimum threshold for ${translatedName}, currently ${localInputs.min} ${sensor.unit}`}
+                accessibilityHint="Enter a number to set the minimum normal value"
+                returnKeyType="next"
+              />
+            </View>
+            <View style={styles.thresholdField}>
+              <Text style={dynamicStyles.thresholdLabel} importantForAccessibility="no-hide-descendants">{t('monitoring.maxLabel')}</Text>
+              <TextInput
+                style={dynamicStyles.thresholdInput}
+                value={localInputs.max}
+                onChangeText={(v) => setLocalInputs((prev) => ({ ...prev, max: v }))}
+                keyboardType="numeric"
+                accessibilityLabel={`Maximum threshold for ${translatedName}, currently ${localInputs.max} ${sensor.unit}`}
+                accessibilityHint="Enter a number to set the maximum normal value"
+                returnKeyType="next"
+              />
+            </View>
+            <View style={styles.thresholdField}>
+              <Text style={dynamicStyles.thresholdLabel} importantForAccessibility="no-hide-descendants">{t('monitoring.criticalLabel')}</Text>
+              <TextInput
+                style={dynamicStyles.thresholdInput}
+                value={localInputs.critical}
+                onChangeText={(v) => setLocalInputs((prev) => ({ ...prev, critical: v }))}
+                keyboardType="numeric"
+                accessibilityLabel={`Critical threshold for ${translatedName}, currently ${localInputs.critical} ${sensor.unit}`}
+                accessibilityHint="Enter a number to set the critical alert value"
+                returnKeyType="done"
+                onSubmitEditing={() => onSave(sensor.id, localInputs)}
+              />
+            </View>
+          </View>
+          <View style={styles.thresholdActions}>
+            <TouchableOpacity style={styles.thresholdSaveButton} onPress={() => onSave(sensor.id, localInputs)} accessibilityRole="button" accessibilityLabel={`Save threshold changes for ${translatedName}`} accessibilityHint="Double tap to apply and save the new threshold values">
+              <Text style={styles.thresholdSaveText} importantForAccessibility="no-hide-descendants">{t('monitoring.saveThresholds')}</Text>
+            </TouchableOpacity>
+            {hasCustomThresholds && (
+              <TouchableOpacity style={styles.thresholdResetButton} onPress={() => onReset(sensor)} accessibilityRole="button" accessibilityLabel={`Reset thresholds for ${translatedName} to defaults`} accessibilityHint="Double tap to restore the original default threshold values">
+                <Text style={styles.thresholdResetText} importantForAccessibility="no-hide-descendants">{t('monitoring.resetToDefault')}</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      )}
+
+      <View style={styles.currentValueContainer} accessible={true} accessibilityLabel={`Current ${translatedName} reading: ${currentReadingText}. Status: ${status.label}`}>
+        <Text style={dynamicStyles.currentValueLabel} importantForAccessibility="no-hide-descendants">{t('monitoring.currentLabel')}</Text>
+        <Text style={dynamicStyles.currentValue} importantForAccessibility="no-hide-descendants">
+          {value !== null && value !== undefined ? `${value.toFixed(sensor.decimalPlaces)}${sensor.unit}` : '--'}
+        </Text>
+        <View style={[styles.statusBadge, { backgroundColor: status.bgColor, borderColor: status.color }]} importantForAccessibility="no-hide-descendants">
+          <Text style={[styles.statusText, { color: status.color }]} importantForAccessibility="no-hide-descendants">{status.label}</Text>
+        </View>
+      </View>
+
+      {selectedTimeRanges.map((timeRangeId) => {
+        const timeRange = TIME_RANGES.find(tr => tr.id === timeRangeId);
+        const history = historyData[`${sensor.id}_${timeRangeId}`];
+        const hasHistoryData = history && history.datasets[0].data.length > 0 && history.datasets[0].data[0] !== 0;
+        let dataDescription = t('common.noDataAvailable');
+        if (hasHistoryData) {
+          const values = history.datasets[0].data;
+          const min = Math.min(...values); const max = Math.max(...values); const avg = values.reduce((a, b) => a + b, 0) / values.length;
+          dataDescription = `Chart showing ${translatedName} over ${t(`monitoring.timeRanges.${timeRangeId}` as any)}. Minimum: ${min.toFixed(sensor.decimalPlaces)} ${sensor.unit}. Maximum: ${max.toFixed(sensor.decimalPlaces)} ${sensor.unit}. Average: ${avg.toFixed(sensor.decimalPlaces)} ${sensor.unit}. ${values.length} data points.`;
+        }
+        return (
+          <View key={timeRangeId} style={styles.chartContainer} accessible={true} accessibilityLabel={dataDescription} accessibilityRole="image">
+            <Text style={dynamicStyles.chartSubtitle} accessibilityRole="header" importantForAccessibility="no-hide-descendants">
+              {t(`monitoring.timeRanges.${timeRangeId}` as any)}
+            </Text>
+            {hasHistoryData ? (
+              <LineChart data={history} width={chartWidth} height={chartHeight} withInnerLines={false} segments={4} withShadow={false}
+                chartConfig={{ backgroundColor: isDarkMode ? '#1F2937' : '#ffffff', backgroundGradientFrom: isDarkMode ? '#1F2937' : '#ffffff', backgroundGradientTo: isDarkMode ? '#1F2937' : '#ffffff', decimalPlaces: sensor.decimalPlaces, color: (_opacity = 1) => sensor.color, strokeWidth: 3, labelColor: (opacity = 1) => isDarkMode ? `rgba(156, 163, 175, ${opacity})` : `rgba(107, 114, 128, ${opacity})`, propsForDots: { r: '0', strokeWidth: '0', stroke: sensor.color } }}
+                bezier style={styles.chart} />
+            ) : (
+              <Text style={[styles.noDataText, { color: isDarkMode ? '#9CA3AF' : '#6B7280' }]} importantForAccessibility="no-hide-descendants">{t('common.noDataAvailable')}</Text>
+            )}
+          </View>
+        );
+      })}
+    </View>
+  );
+};
+
+
+// ============================================================================
 // MAIN COMPONENT
+// ============================================================================
 export default function EnvironmentalMonitor() {
   const router = useRouter();
   const { isTokenLoaded, authenticatedFetch } = useAuthenticatedAPI();
-  const { t } = useTranslation(); // ← NEW
+  const { t } = useTranslation();
 
   const { width: windowWidth } = useWindowDimensions();
   const isPhone = windowWidth < 768;
@@ -102,7 +274,6 @@ export default function EnvironmentalMonitor() {
   const [isTimeRangeDropdownOpen, setIsTimeRangeDropdownOpen] = useState<boolean>(false);
   const [customThresholds, setCustomThresholds] = useState<{ [sensorId: string]: SensorThresholds }>({});
   const [editingSensor, setEditingSensor] = useState<string | null>(null);
-  const [thresholdInputs, setThresholdInputs] = useState<{ min: string; max: string; critical: string }>({ min: '', max: '', critical: '' });
 
   // ============================================================================
   // LIFECYCLE 
@@ -134,20 +305,24 @@ export default function EnvironmentalMonitor() {
   // THRESHOLD HELPERS 
   const loadCustomThresholds = async () => { try { const s = await AsyncStorage.getItem('customSensorThresholds'); if (s) setCustomThresholds(JSON.parse(s)); } catch (e) { console.error('Threshold load error:', e); } };
   const getEffectiveThresholds = (sensor: SensorDefinition): SensorThresholds => customThresholds[sensor.id] ?? sensor.thresholds;
+
   const openThresholdEditor = (sensor: SensorDefinition) => {
-    const effective = getEffectiveThresholds(sensor);
-    setThresholdInputs({ min: String(effective.min), max: String(effective.max), critical: String(effective.critical) });
-    setEditingSensor(sensor.id);
-    setIsNodeDropdownOpen(false); setIsSensorDropdownOpen(false); setIsTimeRangeDropdownOpen(false);
+    setEditingSensor(prev => prev === sensor.id ? null : sensor.id);
+    setIsNodeDropdownOpen(false);
+    setIsSensorDropdownOpen(false);
+    setIsTimeRangeDropdownOpen(false);
   };
-  const saveThresholds = async (sensorId: string) => {
-    const min = parseFloat(thresholdInputs.min); const max = parseFloat(thresholdInputs.max); const critical = parseFloat(thresholdInputs.critical);
+
+  // Updated saveThresholds now receives inputs from the child's local state
+  const saveThresholds = async (sensorId: string, inputs: { min: string; max: string; critical: string }) => {
+    const min = parseFloat(inputs.min); const max = parseFloat(inputs.max); const critical = parseFloat(inputs.critical);
     if (isNaN(min) || isNaN(max) || isNaN(critical)) { Alert.alert('Invalid Values', t('monitoring.invalidThresholds')); return; }
     const updated = { ...customThresholds, [sensorId]: { min, max, critical } };
     setCustomThresholds(updated);
     try { await AsyncStorage.setItem('customSensorThresholds', JSON.stringify(updated)); } catch (e) { console.error('Threshold save error:', e); }
     setEditingSensor(null);
   };
+
   const resetThresholds = async (sensor: SensorDefinition) => {
     const updated = { ...customThresholds }; delete updated[sensor.id]; setCustomThresholds(updated);
     try { await AsyncStorage.setItem('customSensorThresholds', JSON.stringify(updated)); } catch (e) { console.error('Threshold reset error:', e); }
@@ -454,107 +629,6 @@ export default function EnvironmentalMonitor() {
     </View>
   );
 
-  
-  // SENSOR CARD 
-
-  interface SensorCardProps { sensor: SensorDefinition }
-  const SensorCard: React.FC<SensorCardProps> = ({ sensor }) => {
-    const value = sensorData[sensor.id];
-    const status = getStatus(value, sensor);
-    const isEditing = editingSensor === sensor.id;
-    const effectiveThresholds = getEffectiveThresholds(sensor);
-    const hasCustomThresholds = !!customThresholds[sensor.id];
-    const translatedName = t(`monitoring.sensorNames.${sensor.id}` as any);
-    const currentReadingText = value !== null && value !== undefined ? `${value.toFixed(sensor.decimalPlaces)} ${sensor.unit}` : t('common.noDataAvailable');
-
-    return (
-      <View style={[dynamicStyles.card, isPhone && styles.cardPhone]} accessible={true} accessibilityLabel={`${translatedName} sensor. Current reading: ${currentReadingText}. Status: ${status.label}`}>
-        <View style={styles.cardHeader} accessible={true} accessibilityRole="header" accessibilityLabel={`${translatedName} sensor data`}>
-          <Ionicons name={sensor.icon} size={20} color={sensor.color} importantForAccessibility="no-hide-descendants" accessible={false} />
-          <Text style={dynamicStyles.cardTitle} importantForAccessibility="no-hide-descendants">{translatedName}</Text>
-          <TouchableOpacity onPress={() => isEditing ? setEditingSensor(null) : openThresholdEditor(sensor)} style={styles.thresholdEditButton}
-            accessibilityRole="button" accessibilityLabel={isEditing ? `Close threshold editor for ${translatedName}` : `Edit alert thresholds for ${translatedName}`}
-            accessibilityHint={isEditing ? 'Double tap to close the threshold editor' : 'Double tap to open threshold editor'}
-            accessibilityState={{ expanded: isEditing }}>
-            <Ionicons name={isEditing ? 'close-circle-outline' : 'options-outline'} size={18} color={hasCustomThresholds ? '#3B82F6' : isDarkMode ? '#9CA3AF' : '#6B7280'} importantForAccessibility="no-hide-descendants" accessible={false} />
-          </TouchableOpacity>
-        </View>
-
-        {isEditing && (
-          <View style={dynamicStyles.thresholdPanel} accessible={true} accessibilityLabel={`Threshold editor for ${translatedName}. Current values: minimum ${effectiveThresholds.min}, maximum ${effectiveThresholds.max}, critical ${effectiveThresholds.critical}`}>
-            <Text style={[styles.thresholdPanelTitle, { color: isDarkMode ? '#F9FAFB' : '#111827' }]} accessibilityRole="header" importantForAccessibility="no-hide-descendants">
-              {t('monitoring.alertThresholds', { unit: sensor.unit })}
-            </Text>
-            <View style={styles.thresholdRow}>
-              <View style={styles.thresholdField}>
-                <Text style={dynamicStyles.thresholdLabel} importantForAccessibility="no-hide-descendants">{t('monitoring.minLabel')}</Text>
-                <TextInput style={dynamicStyles.thresholdInput} value={thresholdInputs.min} onChangeText={(v) => setThresholdInputs((prev) => ({ ...prev, min: v }))} keyboardType="numeric"
-                  accessibilityLabel={`Minimum threshold for ${translatedName}, currently ${thresholdInputs.min} ${sensor.unit}`} accessibilityHint="Enter a number to set the minimum normal value" returnKeyType="next" />
-              </View>
-              <View style={styles.thresholdField}>
-                <Text style={dynamicStyles.thresholdLabel} importantForAccessibility="no-hide-descendants">{t('monitoring.maxLabel')}</Text>
-                <TextInput style={dynamicStyles.thresholdInput} value={thresholdInputs.max} onChangeText={(v) => setThresholdInputs((prev) => ({ ...prev, max: v }))} keyboardType="numeric"
-                  accessibilityLabel={`Maximum threshold for ${translatedName}, currently ${thresholdInputs.max} ${sensor.unit}`} accessibilityHint="Enter a number to set the maximum normal value" returnKeyType="next" />
-              </View>
-              <View style={styles.thresholdField}>
-                <Text style={dynamicStyles.thresholdLabel} importantForAccessibility="no-hide-descendants">{t('monitoring.criticalLabel')}</Text>
-                <TextInput style={dynamicStyles.thresholdInput} value={thresholdInputs.critical} onChangeText={(v) => setThresholdInputs((prev) => ({ ...prev, critical: v }))} keyboardType="numeric"
-                  accessibilityLabel={`Critical threshold for ${translatedName}, currently ${thresholdInputs.critical} ${sensor.unit}`} accessibilityHint="Enter a number to set the critical alert value"
-                  returnKeyType="done" onSubmitEditing={() => saveThresholds(sensor.id)} />
-              </View>
-            </View>
-            <View style={styles.thresholdActions}>
-              <TouchableOpacity style={styles.thresholdSaveButton} onPress={() => saveThresholds(sensor.id)} accessibilityRole="button" accessibilityLabel={`Save threshold changes for ${translatedName}`} accessibilityHint="Double tap to apply and save the new threshold values">
-                <Text style={styles.thresholdSaveText} importantForAccessibility="no-hide-descendants">{t('monitoring.saveThresholds')}</Text>
-              </TouchableOpacity>
-              {hasCustomThresholds && (
-                <TouchableOpacity style={styles.thresholdResetButton} onPress={() => resetThresholds(sensor)} accessibilityRole="button" accessibilityLabel={`Reset thresholds for ${translatedName} to defaults`} accessibilityHint="Double tap to restore the original default threshold values">
-                  <Text style={styles.thresholdResetText} importantForAccessibility="no-hide-descendants">{t('monitoring.resetToDefault')}</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          </View>
-        )}
-
-        <View style={styles.currentValueContainer} accessible={true} accessibilityLabel={`Current ${translatedName} reading: ${currentReadingText}. Status: ${status.label}`}>
-          <Text style={dynamicStyles.currentValueLabel} importantForAccessibility="no-hide-descendants">{t('monitoring.currentLabel')}</Text>
-          <Text style={dynamicStyles.currentValue} importantForAccessibility="no-hide-descendants">
-            {value !== null && value !== undefined ? `${value.toFixed(sensor.decimalPlaces)}${sensor.unit}` : '--'}
-          </Text>
-          <View style={[styles.statusBadge, { backgroundColor: status.bgColor, borderColor: status.color }]} importantForAccessibility="no-hide-descendants">
-            <Text style={[styles.statusText, { color: status.color }]} importantForAccessibility="no-hide-descendants">{status.label}</Text>
-          </View>
-        </View>
-
-        {selectedTimeRanges.map((timeRangeId) => {
-          const timeRange = TIME_RANGES.find(tr => tr.id === timeRangeId);
-          const history = historyData[`${sensor.id}_${timeRangeId}`];
-          const hasHistoryData = history && history.datasets[0].data.length > 0 && history.datasets[0].data[0] !== 0;
-          let dataDescription = t('common.noDataAvailable');
-          if (hasHistoryData) {
-            const values = history.datasets[0].data;
-            const min = Math.min(...values); const max = Math.max(...values); const avg = values.reduce((a, b) => a + b, 0) / values.length;
-            dataDescription = `Chart showing ${translatedName} over ${t(`monitoring.timeRanges.${timeRangeId}` as any)}. Minimum: ${min.toFixed(sensor.decimalPlaces)} ${sensor.unit}. Maximum: ${max.toFixed(sensor.decimalPlaces)} ${sensor.unit}. Average: ${avg.toFixed(sensor.decimalPlaces)} ${sensor.unit}. ${values.length} data points.`;
-          }
-          return (
-            <View key={timeRangeId} style={styles.chartContainer} accessible={true} accessibilityLabel={dataDescription} accessibilityRole="image">
-              <Text style={dynamicStyles.chartSubtitle} accessibilityRole="header" importantForAccessibility="no-hide-descendants">
-                {t(`monitoring.timeRanges.${timeRangeId}` as any)}
-              </Text>
-              {hasHistoryData ? (
-                <LineChart data={history} width={chartWidth} height={chartHeight} withInnerLines={false} segments={4} withShadow={false}
-                  chartConfig={{ backgroundColor: isDarkMode ? '#1F2937' : '#ffffff', backgroundGradientFrom: isDarkMode ? '#1F2937' : '#ffffff', backgroundGradientTo: isDarkMode ? '#1F2937' : '#ffffff', decimalPlaces: sensor.decimalPlaces, color: (_opacity = 1) => sensor.color, strokeWidth: 3, labelColor: (opacity = 1) => isDarkMode ? `rgba(156, 163, 175, ${opacity})` : `rgba(107, 114, 128, ${opacity})`, propsForDots: { r: '0', strokeWidth: '0', stroke: sensor.color } }}
-                  bezier style={styles.chart} />
-              ) : (
-                <Text style={[styles.noDataText, { color: isDarkMode ? '#9CA3AF' : '#6B7280' }]} importantForAccessibility="no-hide-descendants">{t('common.noDataAvailable')}</Text>
-              )}
-            </View>
-          );
-        })}
-      </View>
-    );
-  };
-
   // ============================================================================
   // MAIN RENDER
   // ============================================================================
@@ -590,7 +664,31 @@ export default function EnvironmentalMonitor() {
         )}
         {selectedNode && !isLoading && (
           <View style={isPhone ? styles.cardsContainerPhone : isTablet ? styles.cardsContainerTablet : styles.cardsContainerDesktop} accessible={false} accessibilityLabel={`Displaying ${selectedSensors.length} sensor cards`}>
-            {selectedSensors.map((sensorId) => { const sensor = SENSOR_DEFINITIONS.find((s) => s.id === sensorId); return sensor ? <SensorCard key={sensor.id} sensor={sensor} /> : null; })}
+            {selectedSensors.map((sensorId) => {
+              const sensor = SENSOR_DEFINITIONS.find((s) => s.id === sensorId);
+              return sensor ? (
+                <SensorCard
+                  key={sensor.id}
+                  sensor={sensor}
+                  sensorData={sensorData}
+                  historyData={historyData}
+                  selectedTimeRanges={selectedTimeRanges}
+                  isDarkMode={isDarkMode}
+                  editingSensor={editingSensor}
+                  customThresholds={customThresholds}
+                  chartWidth={chartWidth}
+                  chartHeight={chartHeight}
+                  isPhone={isPhone}
+                  dynamicStyles={dynamicStyles}
+                  t={t}
+                  onEditToggle={openThresholdEditor}
+                  onSave={saveThresholds}
+                  onReset={resetThresholds}
+                  getStatus={getStatus}
+                  getEffectiveThresholds={getEffectiveThresholds}
+                />
+              ) : null;
+            })}
           </View>
         )}
         <View style={dynamicStyles.footer} accessible={true} accessibilityLabel={`System status: Updates every 30 seconds. Last update at ${lastUpdated.toLocaleTimeString()}`}>

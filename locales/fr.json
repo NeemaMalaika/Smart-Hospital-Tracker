@@ -218,7 +218,7 @@
     }
   },
   "map": {
-    "title": "Suivi de localisation hospitalier",
+    "title": "Suivi de localisation",
     "subtitle": "Suivi du personnel en temps r\u00e9el",
     "selectStaff": "S\u00e9lectionner un membre du personnel",
     "searchPlaceholder": "Rechercher du personnel\u2026",

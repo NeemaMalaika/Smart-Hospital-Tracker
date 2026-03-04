@@ -19,7 +19,7 @@ export default function TabLayout() {
         // Only clear auth if this is a fresh app launch
         if (!hasInitializedSession) {
           await AsyncStorage.removeItem('isAuthenticated');
-          console.log('🔐 Fresh app launch - authentication cleared');
+          console.log('Fresh app launch - authentication cleared');
           hasInitializedSession = true;
           setIsAuthenticated(false);
         } else {
@@ -27,10 +27,10 @@ export default function TabLayout() {
           const authStatus = await AsyncStorage.getItem('isAuthenticated');
           const isValid = authStatus === 'true';
           setIsAuthenticated(isValid);
-          console.log('🔐 Checking auth:', isValid ? 'Authenticated' : 'Not authenticated');
+          console.log('Checking auth:', isValid ? 'Authenticated' : 'Not authenticated');
         }
       } catch (error) {
-        console.error('❌ Error initializing auth:', error);
+        console.error('Error initializing auth:', error);
         setIsAuthenticated(false);
       } finally {
         setIsLoading(false);
@@ -56,7 +56,7 @@ export default function TabLayout() {
         const onLoginPage = segments[1] === 'login';
         const onRegisterPage = segments[1] === 'register';
 
-        console.log('📍 Navigation check:', {
+        console.log('Navigation check:', {
           authenticated: isValid,
           page: segments[1] || 'main',
         });
@@ -66,15 +66,15 @@ export default function TabLayout() {
 
         // Handle redirects
         if (!isValid && !onLoginPage && !onRegisterPage) {
-          console.log('🚫 Not authenticated - redirecting to login');
+          console.log('Not authenticated - redirecting to login');
           router.replace('/(tabs)/login');
         } else if (isValid && (onLoginPage || onRegisterPage)) {
           // Redirect authenticated users to the summary dashboard
-          console.log('✅ Already authenticated - redirecting to summary dashboard');
+          console.log('Already authenticated - redirecting to summary dashboard');
           router.replace('/(tabs)/summary');
         }
       } catch (error) {
-        console.error('❌ Error rechecking auth:', error);
+        console.error('Error rechecking auth:', error);
         setIsAuthenticated(false);
         const onLoginPage = segments[1] === 'login';
         const onRegisterPage = segments[1] === 'register';
@@ -108,7 +108,7 @@ export default function TabLayout() {
           // Prevent tab navigation if not authenticated
           if (!isAuthenticated) {
             e.preventDefault();
-            console.log('🚫 Tab press blocked - not authenticated');
+            console.log('Tab press blocked - not authenticated');
             router.replace('/(tabs)/login');
           }
         },

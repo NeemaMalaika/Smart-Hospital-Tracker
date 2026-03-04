@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { API_BASE, API_KEY } from '../../config';
 import {
   AccessibilityInfo,
   ActivityIndicator,
@@ -17,9 +18,6 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-
-const API_BASE_URL = 'https://backend.smartenvironment.tech/api/v1';
-const API_KEY = '49643a60-0aff-4a88-8e65-30ea428df8ee';
 
 const API_ENDPOINTS = {
   NODES: '/node/list',
@@ -308,7 +306,7 @@ export default function AlertsScreen() {
   const fetchNodes = async () => {
     setIsLoadingNodes(true);
     try {
-      const res = await adminFetch(`${API_BASE_URL}${API_ENDPOINTS.NODES}`, { method: 'GET' });
+      const res = await adminFetch(`${API_BASE}${API_ENDPOINTS.NODES}`, { method: 'GET' });
       if (!res.ok) throw new Error(`Failed to fetch nodes: ${res.status} ${res.statusText}`);
       const data = await res.json();
       const list: NodeSummary[] = Array.isArray(data) ? data : data.nodes || data.data || [];
@@ -411,7 +409,7 @@ export default function AlertsScreen() {
 
     try {
       const res = await adminFetch(
-        `${API_BASE_URL}${API_ENDPOINTS.ALERTS_SETTINGS_GET}?nodeId=${encodeURIComponent(selectedNode)}`,
+        `${API_BASE}${API_ENDPOINTS.ALERTS_SETTINGS_GET}?nodeId=${encodeURIComponent(selectedNode)}`,
         { method: 'GET' }
       );
 
@@ -472,7 +470,7 @@ export default function AlertsScreen() {
     if (!selectedNode) return;
 
     const res = await adminFetch(
-      `${API_BASE_URL}${API_ENDPOINTS.ALERTS_LIST}?nodeId=${encodeURIComponent(selectedNode)}`,
+      `${API_BASE}${API_ENDPOINTS.ALERTS_LIST}?nodeId=${encodeURIComponent(selectedNode)}`,
       { method: 'GET' }
     );
 
@@ -518,7 +516,7 @@ export default function AlertsScreen() {
 
     try {
       const res = await adminFetch(
-        `${API_BASE_URL}${API_ENDPOINTS.ALERTS_SETTINGS_POST}?nodeId=${encodeURIComponent(selectedNode)}`,
+        `${API_BASE}${API_ENDPOINTS.ALERTS_SETTINGS_POST}?nodeId=${encodeURIComponent(selectedNode)}`,
         { method: 'POST', body: JSON.stringify(payload) }
       );
 
@@ -547,7 +545,7 @@ export default function AlertsScreen() {
     if (!selectedNode) return;
 
     const res = await adminFetch(
-      `${API_BASE_URL}${API_ENDPOINTS.ALERTS_ACK}?nodeId=${encodeURIComponent(selectedNode)}&alertId=${encodeURIComponent(
+      `${API_BASE}${API_ENDPOINTS.ALERTS_ACK}?nodeId=${encodeURIComponent(selectedNode)}&alertId=${encodeURIComponent(
         alertId
       )}`,
       { method: 'POST' }
@@ -572,7 +570,7 @@ export default function AlertsScreen() {
     if (!selectedNode) return;
 
     const res = await adminFetch(
-      `${API_BASE_URL}${API_ENDPOINTS.ALERTS_RESOLVE}?nodeId=${encodeURIComponent(selectedNode)}&alertId=${encodeURIComponent(
+      `${API_BASE}${API_ENDPOINTS.ALERTS_RESOLVE}?nodeId=${encodeURIComponent(selectedNode)}&alertId=${encodeURIComponent(
         alertId
       )}`,
       { method: 'POST' }
@@ -597,7 +595,7 @@ export default function AlertsScreen() {
     if (!selectedNode) return;
 
     const res = await adminFetch(
-      `${API_BASE_URL}${API_ENDPOINTS.ALERTS_CLEAR}?nodeId=${encodeURIComponent(selectedNode)}`,
+      `${API_BASE}${API_ENDPOINTS.ALERTS_CLEAR}?nodeId=${encodeURIComponent(selectedNode)}`,
       { method: 'POST' }
     );
 
@@ -642,7 +640,7 @@ export default function AlertsScreen() {
       };
 
       const res = await adminFetch(
-        `${API_BASE_URL}${API_ENDPOINTS.ALERTS_TRIGGER}?nodeId=${encodeURIComponent(selectedNode)}`,
+        `${API_BASE}${API_ENDPOINTS.ALERTS_TRIGGER}?nodeId=${encodeURIComponent(selectedNode)}`,
         { method: 'POST', body: JSON.stringify(payload) }
       );
 

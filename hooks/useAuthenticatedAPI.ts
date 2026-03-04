@@ -1,71 +1,63 @@
 import { useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
-const API_KEY = '49643a60-0aff-4a88-8e65-30ea428df8ee';
+import { API_KEY } from '../config';
 
 export const useAuthenticatedAPI = () => {
-  const [authToken, setAuthToken] = useState<string | null>(null);
-  const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [isTokenLoaded, setIsTokenLoaded] = useState(false);
 
   useEffect(() => {
-    loadAuthToken();
+    // We only need to signal that the hook has initialised.
+    // No need to copy the token into state — we read it fresh on every request.
+    AsyncStorage.getItem('sessionToken')
+      .then((t) => {
+        console.log(t ? '✅ Session token found in storage' : '⚠️ No session token in storage');
+      })
+      .catch((e) => console.error('Error checking session token:', e))
+      .finally(() => setIsTokenLoaded(true));
   }, []);
 
-  const loadAuthToken = async () => {
-    try {
-      // Try to load session token from login
-      const storedSessionToken = await AsyncStorage.getItem('sessionToken');
-      
-      if (storedSessionToken) {
-        console.log('✅ Found session token from login');
-        setSessionToken(storedSessionToken);
-      }
-      
-      // Always set the API key
-      setAuthToken(API_KEY);
-      setIsTokenLoaded(true);
-    } catch (error) {
-      console.error('Error loading auth token:', error);
-      setAuthToken(API_KEY);
-      setIsTokenLoaded(true); // Still set to true to prevent blocking
-    }
-  };
-
-  const getAuthHeaders = () => {
+  /**
+   * Builds auth headers by reading AsyncStorage directly every time,
+   * so we never serve a stale (null) value from React state.
+   */
+  const getAuthHeaders = async (): Promise<Record<string, string>> => {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'API-KEY': authToken || API_KEY,
+      'API-KEY': API_KEY,
     };
-    
-    // Add session token if available
-    if (sessionToken) {
-      headers['Authorization'] = `Bearer ${sessionToken}`;
+
+    try {
+      const token = await AsyncStorage.getItem('sessionToken');
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      } else {
+        console.warn('⚠️ getAuthHeaders: no sessionToken found — request will lack Authorization header');
+      }
+    } catch (e) {
+      console.error('getAuthHeaders: AsyncStorage read failed', e);
     }
-    
+
     return headers;
   };
 
   const authenticatedFetch = async (url: string, options: RequestInit = {}) => {
-    const authHeaders = getAuthHeaders();
-    
-    // Debug logging
-    console.log(' Auth Headers:', authHeaders);
-    console.log(' Fetching URL:', url);
-    
+    const authHeaders = await getAuthHeaders(); // ← await the async read
+
+    // JSON.stringify forces a snapshot so the log isn't a stale object reference
+    console.log('Auth Headers:', JSON.stringify(authHeaders));
+    console.log('Fetching URL:', url);
+
     return fetch(url, {
       method: options.method || 'GET',
       ...options,
       headers: {
         ...authHeaders,
-        ...(options.headers || {}),
+        ...(options.headers as Record<string, string> || {}),
       },
     });
   };
 
   return {
-    authToken,
-    sessionToken,
     isTokenLoaded,
     getAuthHeaders,
     authenticatedFetch,

@@ -1,9 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import CryptoJS from 'crypto-js';
-
-// Backend configuration
-const API_BASE_URL = 'https://backend.smartenvironment.tech';
-const API_KEY = '49643a60-0aff-4a88-8e65-30ea428df8ee';
+import { BACKEND_URL, API_KEY } from '../config';
 
 interface LoginCredentials {
   username: string;
@@ -31,29 +28,29 @@ class ApiService {
   }
 
   /**
-   * Get stored auth token 
+   * Get stored auth token - FIXED TO USE sessionToken
    */
   private async getToken(): Promise<string | null> {
     return await AsyncStorage.getItem('sessionToken');
   }
 
   /**
-   * Save auth token and timestamp 
+   * Save auth token and timestamp - FIXED TO USE sessionToken
    */
   private async saveToken(token: string): Promise<void> {
     await AsyncStorage.multiSet([
-      ['sessionToken', token],
+      ['sessionToken', token], // Changed from 'authToken' to 'sessionToken'
       ['isAuthenticated', 'true'],
       ['tokenTimestamp', Date.now().toString()],
     ]);
   }
 
   /**
-   * Clear all auth data 
+   * Clear all auth data - FIXED TO USE sessionToken
    */
   private async clearAuth(): Promise<void> {
     await AsyncStorage.multiRemove([
-      'sessionToken', 
+      'sessionToken', // Changed from 'authToken' to 'sessionToken'
       'isAuthenticated',
       'username',
       'tokenTimestamp',
@@ -90,7 +87,7 @@ class ApiService {
     console.log('Hashed Password:', hashedPassword);
 
     // BUILD URL WITH QUERY PARAMETERS 
-    const url = `${API_BASE_URL}/api/v1/auth/login?username=${encodeURIComponent(credentials.username)}&hashedPassword=${encodeURIComponent(hashedPassword)}`;
+    const url = `${BACKEND_URL}/api/v1/auth/login?username=${encodeURIComponent(credentials.username)}&hashedPassword=${encodeURIComponent(hashedPassword)}`;
     
     console.log('URL:', url); 
 
@@ -204,7 +201,7 @@ class ApiService {
       }
 
       // ALSO build query parameters (in case backend expects both)
-      let url = `${API_BASE_URL}/api/v1/auth/create-account?username=${encodeURIComponent(credentials.username)}&hashedPassword=${encodeURIComponent(hashedPassword)}`;
+      let url = `${BACKEND_URL}/api/v1/auth/create-account?username=${encodeURIComponent(credentials.username)}&hashedPassword=${encodeURIComponent(hashedPassword)}`;
       if (credentials.email && credentials.email.trim()) {
         url += `&email=${encodeURIComponent(credentials.email.trim())}`;
       }
@@ -295,7 +292,7 @@ class ApiService {
       const token = await this.getToken();
 
       if (token) {
-        await fetch(`${API_BASE_URL}/api/v1/auth/logout`, {
+        await fetch(`${BACKEND_URL}/api/v1/auth/logout`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`,

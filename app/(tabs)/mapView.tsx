@@ -2,6 +2,7 @@ import { FloorPlanMap, Room } from '@/components/FloorPlanMap';
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { API_BASE, API_KEY } from '../../config';
 import {
   ActivityIndicator,
   Platform,
@@ -15,7 +16,7 @@ import {
 } from 'react-native';
 import { useAuthenticatedAPI } from '../../hooks/useAuthenticatedAPI';
 
-const HospitalFloorPlan = ({ navigation }: any) => {
+const FloorPlan = ({ navigation }: any) => {
   const { isTokenLoaded, authenticatedFetch } = useAuthenticatedAPI();
   const { t } = useTranslation(); 
   const { width: windowWidth } = useWindowDimensions(); 
@@ -47,7 +48,6 @@ const HospitalFloorPlan = ({ navigation }: any) => {
   const [isStaffDropdownOpen, setIsStaffDropdownOpen] = useState(false);
   // ──────────────────────────────────────────────────────────────────
 
-  const API_BASE_URL = 'https://backend.smartenvironment.tech/api/v1';
 
   // ============================================================================
   // LOAD MAP 
@@ -56,7 +56,7 @@ const HospitalFloorPlan = ({ navigation }: any) => {
     const fetchFloors = async () => {
       if (!isTokenLoaded) return;
       try {
-        const response = await authenticatedFetch(`${API_BASE_URL}/node/map-floors`, { method: 'GET' });
+        const response = await authenticatedFetch(`${API_BASE}/node/map-floors`, { method: 'GET' });
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         const data = await response.json();
         const floorsArray: number[] = Array.isArray(data) ? data : (data.data || []);
@@ -78,7 +78,7 @@ const HospitalFloorPlan = ({ navigation }: any) => {
       if (!isTokenLoaded) return;
       try {
         setIsMapLoading(true);
-        const response = await authenticatedFetch(`${API_BASE_URL}/node/map?floor=${selectedFloor}`, { method: 'GET' });
+        const response = await authenticatedFetch(`${API_BASE}/node/map?floor=${selectedFloor}`, { method: 'GET' });
         if (response.ok) {
           let data = await response.json();
           if (typeof data === 'string') { try { data = JSON.parse(data); } catch (e) { console.error('Could not parse map data string:', e); } }
@@ -117,7 +117,7 @@ const HospitalFloorPlan = ({ navigation }: any) => {
     try {
       if (!isTokenLoaded) return;
       setIsLoading(true); setError(null);
-      const response = await authenticatedFetch(`${API_BASE_URL}/node/list`);
+      const response = await authenticatedFetch(`${API_BASE}/node/list`);
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       const data = await response.json();
       const nodesList = Array.isArray(data) ? data : (data.nodes || data.data || []);
@@ -141,7 +141,7 @@ const HospitalFloorPlan = ({ navigation }: any) => {
         nodes.map(async (node: any) => {
           const nodeId = node.id || node.nodeId || node.uuid;
           try {
-            const response = await authenticatedFetch(`${API_BASE_URL}/location/current?nodeId=${nodeId}`);
+            const response = await authenticatedFetch(`${API_BASE}/location/current?nodeId=${nodeId}`);
             if (response.status === 204) return;
             if (response.ok) {
               const data = await response.json();
@@ -165,7 +165,7 @@ const HospitalFloorPlan = ({ navigation }: any) => {
   const fetchLocationHistory = async (nodeId: any) => {
     try {
       if (!isTokenLoaded) return;
-      const response = await authenticatedFetch(`${API_BASE_URL}/location/history?nodeId=${nodeId}`);
+      const response = await authenticatedFetch(`${API_BASE}/location/history?nodeId=${nodeId}`);
       if (response.status === 204) { setHistoryData([]); return; }
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       const data = await response.json();
@@ -627,4 +627,4 @@ const styles = StyleSheet.create({
   footerText: { fontSize: 12 },
 });
 
-export default HospitalFloorPlan;
+export default FloorPlan;

@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
+import { API_BASE, API_KEY } from '../../config';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -16,7 +17,6 @@ import {
 import { FloorPlanMap, Point, Room } from '@/components/FloorPlanMap';
 import { useAuthenticatedAPI } from '../../hooks/useAuthenticatedAPI';
 
-const API_BASE_URL = 'https://backend.smartenvironment.tech/api/v1';
 
 const ROOM_COLORS = [
   '#9ca3af',
@@ -59,7 +59,7 @@ export default function AdminMapEditor({ route }: any) {
 
     setIsLoading(true);
     try {
-      const response = await authenticatedFetch(`${API_BASE_URL}/node/map?floor=${floorInput || 0}`, {
+      const response = await authenticatedFetch(`${API_BASE}/node/map?floor=${floorInput || 0}`, {
         method: 'GET',
       });
 
@@ -103,7 +103,7 @@ export default function AdminMapEditor({ route }: any) {
 
     try {
       const payload = { rooms }; 
-      const response = await authenticatedFetch(`${API_BASE_URL}/node/map?floor=${floorInput || 0}`, {
+      const response = await authenticatedFetch(`${API_BASE}/node/map?floor=${floorInput || 0}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
