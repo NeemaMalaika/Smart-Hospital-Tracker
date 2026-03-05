@@ -50,6 +50,12 @@ export default function AdminMapEditor({ route }: any) {
   const [modalVisible, setModalVisible] = useState(false);
   const [pastedJson, setPastedJson] = useState('');
   const [floorInput, setFloorInput] = useState<string>('0');
+  const [coordInputs, setCoordInputs] = useState({
+    x: '',
+    y: '',
+    w: '',
+    h: '',
+  });
 
   const handleLoadFromBackend = async () => {
     if (!isTokenLoaded) {
@@ -232,6 +238,19 @@ export default function AdminMapEditor({ route }: any) {
   const selectedRoom = rooms.find(r => r.id === selectedRoomId);
   const selectedBounds = selectedRoom ? getBounds(selectedRoom.polygon) : null;
 
+  React.useEffect(() => {
+    if (selectedBounds) {
+      setCoordInputs({
+        x: selectedBounds.x.toFixed(1),
+        y: selectedBounds.y.toFixed(1),
+        w: selectedBounds.w.toFixed(1),
+        h: selectedBounds.h.toFixed(1),
+      });
+    } else {
+      setCoordInputs({ x: '', y: '', w: '', h: '' });
+    }
+  }, [selectedRoomId]);
+
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={styles.header}>
@@ -390,22 +409,54 @@ export default function AdminMapEditor({ route }: any) {
             <View style={styles.row}>
               <View style={styles.col}>
                 <Text style={styles.label}>Start X (m)</Text>
-                <TextInput style={styles.input} value={selectedBounds.x.toFixed(1)} onChangeText={(v) => updateRoomDimensions('x', v)} keyboardType="numeric" />
+                <TextInput
+                  style={styles.input}
+                  value={coordInputs.x}
+                  onChangeText={(v) => setCoordInputs(prev => ({ ...prev, x: v }))}
+                  onEndEditing={() => updateRoomDimensions('x', coordInputs.x)}
+                  onSubmitEditing={() => updateRoomDimensions('x', coordInputs.x)}
+                  keyboardType="numeric"
+                  returnKeyType="done"
+                />
               </View>
               <View style={styles.col}>
                 <Text style={styles.label}>Start Y (m)</Text>
-                <TextInput style={styles.input} value={selectedBounds.y.toFixed(1)} onChangeText={(v) => updateRoomDimensions('y', v)} keyboardType="numeric" />
+                <TextInput
+                  style={styles.input}
+                  value={coordInputs.y}
+                  onChangeText={(v) => setCoordInputs(prev => ({ ...prev, y: v }))}
+                  onEndEditing={() => updateRoomDimensions('y', coordInputs.y)}
+                  onSubmitEditing={() => updateRoomDimensions('y', coordInputs.y)}
+                  keyboardType="numeric"
+                  returnKeyType="done"
+                />
               </View>
             </View>
 
             <View style={styles.row}>
               <View style={styles.col}>
                 <Text style={styles.label}>Width (m)</Text>
-                <TextInput style={styles.input} value={selectedBounds.w.toFixed(1)} onChangeText={(v) => updateRoomDimensions('w', v)} keyboardType="numeric" />
+                <TextInput
+                  style={styles.input}
+                  value={coordInputs.w}
+                  onChangeText={(v) => setCoordInputs(prev => ({ ...prev, w: v }))}
+                  onEndEditing={() => updateRoomDimensions('w', coordInputs.w)}
+                  onSubmitEditing={() => updateRoomDimensions('w', coordInputs.w)}
+                  keyboardType="numeric"
+                  returnKeyType="done"
+                />
               </View>
               <View style={styles.col}>
                 <Text style={styles.label}>Height (m)</Text>
-                <TextInput style={styles.input} value={selectedBounds.h.toFixed(1)} onChangeText={(v) => updateRoomDimensions('h', v)} keyboardType="numeric" />
+                <TextInput
+                  style={styles.input}
+                  value={coordInputs.h}
+                  onChangeText={(v) => setCoordInputs(prev => ({ ...prev, h: v }))}
+                  onEndEditing={() => updateRoomDimensions('h', coordInputs.h)}
+                  onSubmitEditing={() => updateRoomDimensions('h', coordInputs.h)}
+                  keyboardType="numeric"
+                  returnKeyType="done"
+                />
               </View>
             </View>
           </View>
