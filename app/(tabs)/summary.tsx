@@ -3,7 +3,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { API_BASE } from '../../config';
 import {
   ActivityIndicator,
   Platform,
@@ -15,8 +14,9 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import { useAuthenticatedAPI } from '../../hooks/useAuthenticatedAPI';
 import Toast from '../../components/toast';
+import { API_BASE } from '../../config';
+import { useAuthenticatedAPI } from '../../hooks/useAuthenticatedAPI';
 
 // ============================================================================
 // TYPES
@@ -147,7 +147,6 @@ export default function SummaryDashboard() {
       SUMMARY_METRICS.forEach((m) => {
         let raw = data[m.apiKey];
         if (raw == null) { processed[m.id] = null; return; }
-        if (m.apiKey === 'pressure') raw = Number(raw) / 1000;
         processed[m.id] = parseFloat(raw);
       });
       setSensorData(processed);
