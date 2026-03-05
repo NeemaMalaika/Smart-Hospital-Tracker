@@ -2,7 +2,6 @@ import { FloorPlanMap, Room } from '@/components/FloorPlanMap';
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { API_BASE, API_KEY } from '../../config';
 import {
   ActivityIndicator,
   Platform,
@@ -14,6 +13,7 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
+import { API_BASE } from '../../config';
 import { useAuthenticatedAPI } from '../../hooks/useAuthenticatedAPI';
 
 const FloorPlan = ({ navigation }: any) => {
@@ -279,7 +279,8 @@ const FloorPlan = ({ navigation }: any) => {
       </View>
 
       {/* ── STAFF SELECTOR with Search Bar ────────────────────── */}
-      <View style={[styles.section, dynamicStyles.card, { zIndex: 1000, overflow: 'visible' }]}>
+      {viewMode === 'history' && (
+        <View style={[styles.section, dynamicStyles.card, { zIndex: 1000, overflow: 'visible' }]}>
         <Text style={[styles.sectionLabel, dynamicStyles.text]}>{t('map.selectStaff')}</Text>
 
         <View style={isPhone ? styles.searchRowPhone : styles.searchRowLaptop}>
@@ -340,7 +341,8 @@ const FloorPlan = ({ navigation }: any) => {
             </ScrollView>
           </View>
         )}
-      </View>
+        </View>
+      )}
       {/* ─────────────────────────────────────────────────────────────── */}
 
       {/* MOVEMENT ALERT */}
@@ -373,7 +375,8 @@ const FloorPlan = ({ navigation }: any) => {
       )}
 
       {/* FLOOR PLAN */}
-      <View style={[styles.section, dynamicStyles.card]}>
+      {viewMode === 'current' && (
+        <View style={[styles.section, dynamicStyles.card]}>
         <View style={{ marginBottom: 12, zIndex: 1000 }}>
           <Text style={[styles.sectionLabel, dynamicStyles.text]}>
             Select Floor
@@ -465,7 +468,8 @@ const FloorPlan = ({ navigation }: any) => {
             <Text style={[styles.subtext, { textAlign: 'center', marginTop: 12, fontSize: 12 }]}>{t('map.pinchToZoom')}</Text>
           </>
         )}
-      </View>
+        </View>
+      )}
 
       {/* ROOM DETAILS / HISTORY */}
       {viewMode === 'current' ? (
