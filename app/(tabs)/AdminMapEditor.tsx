@@ -179,6 +179,16 @@ export default function AdminMapEditor({ route }: any) {
     setSelectedRoomId(newRoom.id);
   };
 
+  const handleNewMap = () => {
+    if (Platform.OS === 'web') {
+      if (!confirm('Create a new empty map? This will delete all current rooms.')) {
+        return;
+      }
+    }
+    setRooms([]);
+    setSelectedRoomId(null);
+  };
+
   const handleDeleteRoom = () => {
     if (!selectedRoomId) return;
     if (Platform.OS === 'web') {
@@ -258,6 +268,13 @@ export default function AdminMapEditor({ route }: any) {
         </View>
         
         <View style={styles.headerActions}>
+          <TouchableOpacity 
+            onPress={handleNewMap} 
+            style={[styles.saveButton, { marginRight: 6, backgroundColor: '#EF4444' }]}
+          >
+            <Text style={styles.saveButtonText}>New Map</Text>
+          </TouchableOpacity>
+
           <TouchableOpacity 
             onPress={() => setModalVisible(true)} 
             style={[styles.saveButton, { marginRight: 6 }]}
