@@ -162,6 +162,35 @@ function clampNum(v: number, min: number, max: number) {
   return Math.max(min, Math.min(max, v));
 }
 
+function frontendAlertString(t: string): string {
+  switch (t) {
+    case 'TEMPERATURE':
+      return 'Temperature';
+    case 'HUMIDITY':
+      return 'Humidity';
+    case 'PRESSURE':
+      return 'Pressure';
+    case 'NOISE':
+      return 'Noise';
+    case 'LIGHT':
+      return 'Light';
+    case 'BATTERY_LOW':
+      return 'Battery low';
+    case 'HEARTBEAT_MISSED':
+      return 'Heartbeat missed';
+    case 'OCCUPANCY_HIGH':
+      return 'Occupancy high';
+    case 'BATTERY':
+      return 'Battery';
+    case 'HEARTBEAT':
+      return 'Heartbeat';
+    case 'ROOM_LIMIT':
+      return 'Room limit';
+    default:
+      return t;
+  }
+}
+
 // Maps backend alert shape → AlertLogItem[]
 function mapBackendAlertsToLog(
   nodeId: string,
@@ -185,6 +214,9 @@ function mapBackendAlertsToLog(
 
       const id = String(a?.alertId || a?.id || `${typeKey}_${createdAt}`);
 
+      const rawMessage = a?.message ? String(a.message) : `${typeKey} ${severity === 'CRITICAL' ? 'critical' : 'warning'}`;
+      const prettyMessage = rawMessage.replace(new RegExp(typeKey, 'gi'), frontendAlertString(typeKey));
+
       out.push({
         id,
         nodeId,
@@ -192,7 +224,7 @@ function mapBackendAlertsToLog(
         type: typeKey as AlertType,
         severity,
         status,
-        message: a?.message ? String(a.message) : `${typeKey} ${severity === 'CRITICAL' ? 'critical' : 'warning'}`,
+        message: prettyMessage,
         createdAt,
       });
     }
@@ -1012,7 +1044,7 @@ export default function AlertsScreen() {
                   <View style={[styles.badge, { backgroundColor: sev.bg, borderColor: sev.border }]}>
                     <Text style={[styles.badgeText, { color: sev.text }]}>{a.severity}</Text>
                   </View>
-                  <Text style={[styles.alertType, dynamic.metaText]}>{a.type}</Text>
+                  <Text style={[styles.alertType, dynamic.metaText]}>{frontendAlertString(a.type)}</Text>
                   <Text style={[styles.alertTime, dynamic.metaText]}>{new Date(a.createdAt).toLocaleTimeString()}</Text>
                 </View>
 
@@ -1077,7 +1109,7 @@ export default function AlertsScreen() {
                   <Text style={[styles.logMeta, dynamic.metaText]}>{new Date(a.createdAt).toLocaleString()}</Text>
                 </View>
 
-                <Text style={[styles.logType, dynamic.metaText]}>{a.type}</Text>
+                <Text style={[styles.logType, dynamic.metaText]}>{frontendAlertString(a.type)}</Text>
                 <Text style={[styles.logMessage, dynamic.bodyText]}>{a.message}</Text>
 
                 <View style={styles.actionRow}>
