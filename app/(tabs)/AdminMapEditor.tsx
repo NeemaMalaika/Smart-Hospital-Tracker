@@ -1,7 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { API_BASE, API_KEY } from '../../config';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -13,6 +12,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import { API_BASE } from '../../config';
 
 import { FloorPlanMap, Point, Room } from '@/components/FloorPlanMap';
 import { useAuthenticatedAPI } from '../../hooks/useAuthenticatedAPI';
@@ -394,7 +394,7 @@ export default function AdminMapEditor({ route }: any) {
           </View>
         ) : (
           <View style={styles.emptyInspector}>
-            <Text style={styles.emptyText}>Select a room to edit properties</Text>
+            <Text style={styles.emptyText}>Select a room to edit properties. Hold Space and drag to move the view.</Text>
             <TouchableOpacity style={styles.addButton} onPress={handleAddRoom}>
               <Ionicons name="add" size={20} color="#FFF" />
               <Text style={styles.addButtonText}>Add New Room</Text>

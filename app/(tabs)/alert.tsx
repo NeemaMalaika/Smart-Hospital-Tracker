@@ -3,7 +3,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { API_BASE, API_KEY } from '../../config';
 import {
   AccessibilityInfo,
   ActivityIndicator,
@@ -18,6 +17,7 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
+import { API_BASE, API_KEY } from '../../config';
 
 const API_ENDPOINTS = {
   NODES: '/node/list',
@@ -27,8 +27,6 @@ const API_ENDPOINTS = {
   ALERTS_CLEAR: '/alerts/clear',
   ALERTS_SETTINGS_GET: '/alerts/settings',
   ALERTS_SETTINGS_POST: '/alerts/settings',
-
-  // ✅ NEW (Sprint 3): backend endpoint to trigger a custom alert
   ALERTS_TRIGGER: '/alerts/manual',
 };
 
@@ -1130,22 +1128,28 @@ export default function AlertsScreen() {
         <View style={dynamic.divider} />
 
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-          {(['ROOM_LIMIT', 'HEARTBEAT', 'BATTERY', 'NOISE', 'TEMPERATURE'] as AlertType[]).map((tpe) => {
-            const active = manualType === tpe;
+          {[
+            { value: 'ROOM_LIMIT', label: 'Room limit' },
+            { value: 'HEARTBEAT', label: 'Heartbeat' },
+            { value: 'BATTERY', label: 'Battery low' },
+            { value: 'NOISE', label: 'Noise' },
+            { value: 'TEMPERATURE', label: 'Temperature' },
+          ].map((opt) => {
+            const active = manualType === opt.value;
             return (
               <TouchableOpacity
-                key={tpe}
-                onPress={() => setManualType(tpe)}
+                key={opt.value}
+                onPress={() => setManualType(opt.value as any)}
                 style={[
                   styles.pill,
                   { backgroundColor: active ? '#2563EB' : isDarkMode ? '#374151' : '#F3F4F6' },
                 ]}
                 accessibilityRole="button"
-                accessibilityLabel={`Select manual alert type ${tpe}`}
+                accessibilityLabel={`Select manual alert type ${opt.label}`}
                 accessibilityState={{ selected: active }}
               >
                 <Text style={{ color: active ? '#FFFFFF' : isDarkMode ? '#E5E7EB' : '#111827', fontWeight: '700' }}>
-                  {tpe}
+                  {opt.label}
                 </Text>
               </TouchableOpacity>
             );
