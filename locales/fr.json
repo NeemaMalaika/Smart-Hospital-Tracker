@@ -58,7 +58,8 @@
       "noiseLevel": "Niveau sonore",
       "pressure": "Pression",
       "battery": "Batterie de l'appareil",
-      "occupancy": "Personnes dans la pièce"
+      "occupancy": "Personnes dans la pièce",
+      "iaq": "Qualité de l'air intérieur"
     }
   },
   "monitoring": {
@@ -89,7 +90,8 @@
       "humidity": "Humidité",
       "pressure": "Pression",
       "light": "Niveau de lumière",
-      "noiseLevel": "Niveau sonore"
+      "noiseLevel": "Niveau sonore",
+      "iaq": "Qualité de l'air intérieur"
     }
   },
   "admin": {

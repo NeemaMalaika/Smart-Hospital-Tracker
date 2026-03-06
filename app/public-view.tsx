@@ -12,6 +12,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  useColorScheme,
   useWindowDimensions,
 } from 'react-native';
 
@@ -55,6 +56,7 @@ const ALL_METRICS: SummaryMetric[] = [
   { id: 'light',       unit: ' lux', icon: 'sunny',        color: '#FBBF24', apiKey: 'light',       decimalPlaces: 0, statusThresholds: { min: 0,  max: 1000, critical: 2000 } },
   { id: 'noiseLevel',  unit: ' dB',  icon: 'volume-high',  color: '#F59E0B', apiKey: 'noiseLevel',  decimalPlaces: 1, statusThresholds: { min: 0,  max: 60,   critical: 85 } },
   { id: 'pressure',    unit: ' kPa', icon: 'speedometer',  color: '#8B5CF6', apiKey: 'pressure',    decimalPlaces: 2, statusThresholds: { min: 98, max: 102,  critical: 104 } },
+  { id: 'iaq', unit: 'AQI', icon: 'cloud', color: '#F59E0B', apiKey: 'iaq',decimalPlaces: 0, statusThresholds: { min: 0, max: 100, critical: 150 }, },
 ];
 
 const METRIC_LABELS: Record<string, string> = {
@@ -68,6 +70,8 @@ const METRIC_LABELS: Record<string, string> = {
 export default function PublicView() {
   const router = useRouter();
   const { width } = useWindowDimensions();
+  const colorScheme = useColorScheme();
+  const isDark = colorScheme === 'dark';
   const isPhone  = width < 768;
   const isTablet = width >= 768 && width < 1280;
 
@@ -85,7 +89,7 @@ export default function PublicView() {
 
   const selectedNodeRef = useRef<string | null>(null);
 
-  // Which metrics to show — admin can restrict via the= visibleMetrics, default = all
+  // Which metrics to show — admin can restrict via visibleMetrics, default = all
   const visibleMetrics =
     nodeInfo?.visibleMetrics && nodeInfo.visibleMetrics.length > 0
       ? ALL_METRICS.filter((m) => nodeInfo.visibleMetrics!.includes(m.id))
@@ -105,7 +109,7 @@ export default function PublicView() {
       console.log(`[PublicView] /node/list → HTTP ${res.status} ${res.statusText}`);
 
       if (res.status === 401) {
-        console.error('[PublicView]  401 UNAUTHORISED on /node/list — API_KEY may be wrong or expired');
+        console.error('[PublicView] ❌ 401 UNAUTHORISED on /node/list — API_KEY may be wrong or expired');
         console.error(`[PublicView] API_KEY used: ${API_KEY}`);
         throw new Error('401 Unauthorised — check API_KEY constant');
       }
@@ -241,7 +245,7 @@ export default function PublicView() {
     const info = data.data || data;
     if (info && info.title) {
       console.log(`[PublicView] Info loaded — title: "${info.title}" | visibleMetrics: ${JSON.stringify(info.visibleMetrics)}`);
-      // Only update state if something actually changed — prevents glitchingg
+      // Only update state if something actually changed — prevents glitch on every poll
       setNodeInfo(prev => {
         if (
           prev?.title === info.title &&
@@ -325,15 +329,15 @@ export default function PublicView() {
     // Phone — horizontal row layout
     if (isPhone) {
       return (
-        <View style={[styles.card, styles.cardPhone]}>
+        <View style={[styles.card, styles.cardPhone, d.card]}>
           <View style={styles.cardPhoneLeft}>
             <View style={[styles.iconCircle, { backgroundColor: `${metric.color}22` }]}>
               <Ionicons name={metric.icon} size={22} color={metric.color} />
             </View>
-            <Text style={styles.cardTitle} numberOfLines={1}>{label}</Text>
+            <Text style={[styles.cardTitle, d.cardTitle]} numberOfLines={1}>{label}</Text>
           </View>
           <View style={styles.cardPhoneRight}>
-            <Text style={styles.metricValuePhone} numberOfLines={1} adjustsFontSizeToFit>
+            <Text style={[styles.metricValuePhone, d.metricValuePhone]} numberOfLines={1} adjustsFontSizeToFit>
               {displayValue}
             </Text>
             <View style={[styles.statusBadge, { backgroundColor: status.bgColor, borderColor: status.color }]}>
@@ -344,16 +348,15 @@ export default function PublicView() {
       );
     }
 
-    // Tablet / desktop — compact card sitting in the left column 2-col grid
     return (
-      <View style={styles.card}>
+      <View style={[styles.card, d.card]}>
         <View style={styles.cardHeader}>
           <View style={[styles.iconCircle, { backgroundColor: `${metric.color}22` }]}>
             <Ionicons name={metric.icon} size={24} color={metric.color} />
           </View>
-          <Text style={styles.cardTitle}>{label}</Text>
+          <Text style={[styles.cardTitle, d.cardTitle]}>{label}</Text>
         </View>
-        <Text style={styles.metricValue} numberOfLines={1} adjustsFontSizeToFit>
+        <Text style={[styles.metricValue, d.metricValue]} numberOfLines={1} adjustsFontSizeToFit>
           {displayValue}
         </Text>
         <View style={[styles.statusBadge, { backgroundColor: status.bgColor, borderColor: status.color }]}>
@@ -367,23 +370,23 @@ export default function PublicView() {
   // INFO BOARD
   // ============================================================================
   const InfoBoard = () => (
-    <View style={styles.infoBoardWrapper}>
-      <View style={styles.infoBoardHeader}>
-        <Ionicons name="information-circle" size={20} color="#3B82F6" />
-        <Text style={styles.infoBoardHeading}>Location Information</Text>
-        {infoLoading && <ActivityIndicator size="small" color="#3B82F6" style={{ marginLeft: 8 }} />}
+    <View style={[styles.infoBoardWrapper, d.infoBoardWrapper]}>
+      <View style={[styles.infoBoardHeader, d.infoBoardHeader]}>
+        <Ionicons name="information-circle" size={20} color={isDark ? '#93C5FD' : '#3B82F6'} />
+        <Text style={[styles.infoBoardHeading, d.infoBoardHeading]}>Location Information</Text>
+        {infoLoading && <ActivityIndicator size="small" color={isDark ? '#93C5FD' : '#3B82F6'} style={{ marginLeft: 8 }} />}
       </View>
 
       {infoLoading && !nodeInfo ? (
         <View style={styles.infoBoardEmpty}>
-          <ActivityIndicator color="#3B82F6" />
-          <Text style={styles.infoBoardEmptyText}>Loading…</Text>
+          <ActivityIndicator color={isDark ? '#93C5FD' : '#3B82F6'} />
+          <Text style={[styles.infoBoardEmptyText, d.infoBoardEmptyText]}>Loading…</Text>
         </View>
       ) : nodeInfo ? (
         <View style={styles.infoBoardContent}>
-          <Text style={styles.infoBoardTitle}>{nodeInfo.title}</Text>
-          <View style={styles.infoBoardDivider} />
-          <Text style={styles.infoBoardBody}>{nodeInfo.content}</Text>
+          <Text style={[styles.infoBoardTitle, d.infoBoardTitle]}>{nodeInfo.title}</Text>
+          <View style={[styles.infoBoardDivider, d.infoBoardDivider]} />
+          <Text style={[styles.infoBoardBody, d.infoBoardBody]}>{nodeInfo.content}</Text>
           {nodeInfo.imageUrl ? (
             <View style={styles.infoBoardImageContainer}>
               <Image
@@ -393,17 +396,17 @@ export default function PublicView() {
               />
             </View>
           ) : null}
-          <Text style={styles.infoBoardTimestamp}>
+          <Text style={[styles.infoBoardTimestamp, d.infoBoardTimestamp]}>
             Last updated: {new Date(nodeInfo.lastUpdated).toLocaleString()}
           </Text>
         </View>
       ) : (
         <View style={styles.infoBoardEmpty}>
-          <Ionicons name="document-text-outline" size={36} color="#D1D5DB" />
-          <Text style={styles.infoBoardEmptyText}>
+          <Ionicons name="document-text-outline" size={36} color={isDark ? '#4B5563' : '#D1D5DB'} />
+          <Text style={[styles.infoBoardEmptyText, d.infoBoardEmptyText]}>
             {infoError || 'No information has been added for this location yet.'}
           </Text>
-          <Text style={styles.infoBoardEmptyHint}>
+          <Text style={[styles.infoBoardEmptyHint, d.infoBoardEmptyHint]}>
             An admin can add details about this location from the Admin panel.
           </Text>
         </View>
@@ -411,31 +414,62 @@ export default function PublicView() {
     </View>
   );
 
+  // ── Dark mode dynamic styles ──────────────────────────────────────────────
+  const d = {
+    container:             { backgroundColor: isDark ? '#111827' : '#F9FAFB' },
+    header:                { backgroundColor: isDark ? '#1F2937' : '#FFFFFF', borderBottomColor: isDark ? '#374151' : '#E5E7EB' },
+    headerTitle:           { color: isDark ? '#F9FAFB' : '#111827' },
+    headerSubtitle:        { color: isDark ? '#9CA3AF' : '#6B7280' },
+    backButton:            { color: isDark ? '#9CA3AF' : '#6B7280' },
+    controlBar:            { backgroundColor: isDark ? '#1F2937' : '#FFFFFF', borderBottomColor: isDark ? '#374151' : '#E5E7EB' },
+    searchInput:           { backgroundColor: isDark ? '#374151' : '#F3F4F6', color: isDark ? '#F9FAFB' : '#111827', borderColor: isDark ? '#4B5563' : '#D1D5DB' },
+    dropdownMenu:          { backgroundColor: isDark ? '#1F2937' : '#FFFFFF', borderColor: isDark ? '#374151' : '#D1D5DB' },
+    dropdownItem:          { borderBottomColor: isDark ? '#374151' : '#F3F4F6' },
+    dropdownItemActive:    { backgroundColor: isDark ? '#1E3A8A' : '#EFF6FF' },
+    dropdownItemText:      { color: isDark ? '#D1D5DB' : '#374151' },
+    dropdownItemTextActive:{ color: isDark ? '#93C5FD' : '#2563EB' },
+    card:                  { backgroundColor: isDark ? '#1F2937' : '#FFFFFF', borderColor: isDark ? '#374151' : '#E5E7EB' },
+    cardTitle:             { color: isDark ? '#F9FAFB' : '#111827' },
+    metricValue:           { color: isDark ? '#F9FAFB' : '#111827' },
+    metricValuePhone:      { color: isDark ? '#F9FAFB' : '#111827' },
+    infoBoardWrapper:      { backgroundColor: isDark ? '#1F2937' : '#FFFFFF', borderColor: isDark ? '#374151' : '#E5E7EB' },
+    infoBoardHeader:       { backgroundColor: isDark ? '#1E3A8A' : '#EFF6FF', borderBottomColor: isDark ? '#1D4ED8' : '#DBEAFE' },
+    infoBoardHeading:      { color: isDark ? '#93C5FD' : '#1D4ED8' },
+    infoBoardTitle:        { color: isDark ? '#F9FAFB' : '#111827' },
+    infoBoardDivider:      { backgroundColor: isDark ? '#374151' : '#E5E7EB' },
+    infoBoardBody:         { color: isDark ? '#D1D5DB' : '#374151' },
+    infoBoardTimestamp:    { color: isDark ? '#6B7280' : '#9CA3AF' },
+    infoBoardEmptyText:    { color: isDark ? '#9CA3AF' : '#6B7280' },
+    infoBoardEmptyHint:    { color: isDark ? '#6B7280' : '#9CA3AF' },
+    loadingText:           { color: isDark ? '#9CA3AF' : '#6B7280' },
+    footerText:            { color: isDark ? '#6B7280' : '#9CA3AF' },
+  };
+
   // ============================================================================
   // RENDER
   // ============================================================================
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, d.container]}>
       {/* ── Header ── */}
-      <View style={styles.header}>
+      <View style={[styles.header, d.header]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={22} color="#6B7280" />
+          <Ionicons name="arrow-back" size={22} color={isDark ? '#9CA3AF' : '#6B7280'} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
-          <Text style={styles.headerTitle}>Live Dashboard</Text>
-          <Text style={styles.headerSubtitle}>Public view · read only</Text>
+          <Text style={[styles.headerTitle, d.headerTitle]}>Live Dashboard</Text>
+          <Text style={[styles.headerSubtitle, d.headerSubtitle]}>Public view · read only</Text>
         </View>
       </View>
 
       {/* ── Node selector ── */}
-      <View style={styles.controlBar}>
+      <View style={[styles.controlBar, d.controlBar]}>
         <View style={isPhone ? styles.nodeRowPhone : styles.nodeRowLaptop}>
           <View style={isPhone ? styles.searchContainerPhone : styles.searchContainerLaptop}>
-            <Ionicons name="search" size={16} color="#9CA3AF" style={styles.searchIcon} />
+            <Ionicons name="search" size={16} color={isDark ? '#6B7280' : '#9CA3AF'} style={styles.searchIcon} />
             <TextInput
-              style={styles.searchInput}
+              style={[styles.searchInput, d.searchInput]}
               placeholder="Search locations…"
-              placeholderTextColor="#9CA3AF"
+              placeholderTextColor={isDark ? '#6B7280' : '#9CA3AF'}
               value={nodeSearchQuery}
               onChangeText={setNodeSearchQuery}
               onFocus={() => setIsDropdownOpen(true)}
@@ -452,7 +486,7 @@ export default function PublicView() {
         </View>
 
         {isDropdownOpen && filteredNodes.length > 0 && (
-          <View style={styles.dropdownMenu}>
+          <View style={[styles.dropdownMenu, d.dropdownMenu]}>
             <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
               {filteredNodes.map((n) => {
                 const id  = n.nodeId || n.id || n.uuid;
@@ -466,9 +500,9 @@ export default function PublicView() {
                       setNodeSearchQuery('');
                       setIsDropdownOpen(false);
                     }}
-                    style={[styles.dropdownItem, sel && styles.dropdownItemActive]}>
-                    <Text style={[styles.dropdownItemText, sel && styles.dropdownItemTextActive]}>{nm}</Text>
-                    {sel && <Ionicons name="checkmark" size={16} color="#2563EB" />}
+                    style={[styles.dropdownItem, d.dropdownItem, sel && { ...styles.dropdownItemActive, ...d.dropdownItemActive }]}>
+                    <Text style={[styles.dropdownItemText, d.dropdownItemText, sel && d.dropdownItemTextActive]}>{nm}</Text>
+                    {sel && <Ionicons name="checkmark" size={16} color={isDark ? '#93C5FD' : '#2563EB'} />}
                   </TouchableOpacity>
                 );
               })}
@@ -478,12 +512,12 @@ export default function PublicView() {
       </View>
 
       {/* ── Main scroll area ── */}
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView contentContainerStyle={[styles.scrollContent, d.container]}>
 
         {isLoading && nodes.length === 0 && (
           <View style={styles.centered}>
-            <ActivityIndicator size="large" color="#2563EB" />
-            <Text style={styles.loadingText}>Loading locations…</Text>
+            <ActivityIndicator size="large" color={isDark ? '#60A5FA' : '#2563EB'} />
+            <Text style={[styles.loadingText, d.loadingText]}>Loading locations…</Text>
           </View>
         )}
 
@@ -544,7 +578,7 @@ export default function PublicView() {
 
         <View style={styles.footer}>
           <View style={styles.footerDot} />
-          <Text style={styles.footerText}>
+          <Text style={[styles.footerText, d.footerText]}>
             Sensors update every 30s · Info updates every 60s · Last: {lastUpdated.toLocaleTimeString()}
           </Text>
         </View>

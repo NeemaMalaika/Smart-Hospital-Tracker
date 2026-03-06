@@ -62,8 +62,9 @@ const SENSOR_DEFINITIONS: SensorDefinition[] = [
   { id: 'pressure', name: 'Pressure', unit: 'kPa', icon: 'speedometer', color: '#8B5CF6', apiKey: 'pressure', thresholds: { min: 98, max: 102, critical: 104 }, decimalPlaces: 2 },
   { id: 'light', name: 'Light Level', unit: 'lux', icon: 'sunny', color: '#FBBF24', apiKey: 'light', thresholds: { min: 0, max: 1000, critical: 2000 }, decimalPlaces: 0 },
   { id: 'noiseLevel', name: 'Noise Level', unit: 'dB', icon: 'volume-high', color: '#F59E0B', apiKey: 'noiseLevel', thresholds: { min: 0, max: 60, critical: 85 }, decimalPlaces: 1 },
+  { id: 'iaq', name: 'Indoor Air Quality', unit: 'AQI', icon: 'cloud', color: '#F59E0B', apiKey: 'iaq', thresholds: { min: 0, max: 100, critical: 150 }, decimalPlaces: 0 },
 ];
-
+  
 const DEFAULT_CONFIG: Config = { systemName: 'Environmental Monitor', entityName: 'Node', entityPlural: 'Nodes' };
 
 
@@ -358,21 +359,41 @@ export default function EnvironmentalMonitor() {
   const fetchCurrentSensorData = async () => {
     if (!selectedNode) return;
     const url = `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.CURRENT_SENSORS}?nodeId=${selectedNode}`;
+    console.log('═══════════════════════════════════════');
+    console.log('[EnvironmentalMonitor] fetchCurrentSensorData()');
+    console.log(`[EnvironmentalMonitor] URL: GET ${url}`);
     const response = await authenticatedFetch(url);
+    console.log(`[EnvironmentalMonitor] /sensors/current → HTTP ${response.status}`);
     if (response.status === 204) { setSensorData({}); return; }
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
     const data = await response.json();
+    console.log('[EnvironmentalMonitor] Raw API response:', JSON.stringify(data, null, 2));
+    console.log('[EnvironmentalMonitor] Keys in response:', Object.keys(data));
     const processedData: SensorData = {};
     SENSOR_DEFINITIONS.forEach((sensor) => {
       if (Array.isArray(sensor.apiKey)) {
         const values = sensor.apiKey.map(k => data[k]).filter(v => v !== undefined && v !== null).map(v => parseFloat(v));
-        if (values.length > 0) processedData[sensor.id] = sensor.aggregate === 'sum' ? values.reduce((a, b) => a + b, 0) : values.reduce((a, b) => a + b, 0) / values.length;
+        if (values.length > 0) {
+          processedData[sensor.id] = sensor.aggregate === 'sum'
+            ? values.reduce((a, b) => a + b, 0)
+            : values.reduce((a, b) => a + b, 0) / values.length;
+          console.log(`[EnvironmentalMonitor]   ${sensor.id} (array): ${processedData[sensor.id]}${sensor.unit}`);
+        } else {
+          console.log(`[EnvironmentalMonitor]   ${sensor.id} (array): NOT FOUND — looked for keys: ${sensor.apiKey.join(', ')}`);
+        }
       } else {
-        let raw = data[sensor.apiKey]; if (raw === undefined || raw === null) return;
+        let raw = data[sensor.apiKey];
+        console.log(`[EnvironmentalMonitor]   ${sensor.id}: apiKey="${sensor.apiKey}" → raw value="${raw}"`);
+        if (raw === undefined || raw === null) {
+          console.log(`[EnvironmentalMonitor]   ${sensor.id}: MISSING in response`);
+          return;
+        }
         if (sensor.apiKey === 'pressure') raw = Number(raw) / 1000;
         processedData[sensor.id] = parseFloat(raw);
+        console.log(`[EnvironmentalMonitor]   ${sensor.id}: processed = ${processedData[sensor.id]}${sensor.unit}`);
       }
     });
+    console.log('[EnvironmentalMonitor] Final processedData:', JSON.stringify(processedData));
     setSensorData(processedData);
   };
 

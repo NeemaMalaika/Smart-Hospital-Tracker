@@ -58,7 +58,8 @@
       "noiseLevel": "Noise Level",
       "pressure": "Pressure",
       "battery": "Device Battery",
-      "occupancy": "People in Room"
+      "occupancy": "People in Room",
+      "iaq": "Indoor Air Quality"
     }
   },
   "monitoring": {
@@ -89,7 +90,8 @@
       "humidity": "Humidity",
       "pressure": "Pressure",
       "light": "Light Level",
-      "noiseLevel": "Noise Level"
+      "noiseLevel": "Noise Level",
+      "iaq": "Indoor Air Quality" 
     }
   },
   "admin": {
