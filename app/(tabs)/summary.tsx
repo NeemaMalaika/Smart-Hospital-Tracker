@@ -49,6 +49,7 @@ const SUMMARY_METRICS: SummaryMetric[] = [
   { id: 'pressure',    name: 'Pressure',    unit: 'kPa',  icon: 'speedometer',  color: '#8B5CF6', apiKey: 'pressure',    decimalPlaces: 2, statusThresholds: { min: 98, max: 102,  critical: 104 } },
   { id: 'battery',     name: 'Battery',     unit: '%',    icon: 'battery-half', color: '#10B981', apiKey: 'battery',     decimalPlaces: 0, statusThresholds: { min: 20, max: 100,  critical: 10 } },
   { id: 'occupancy',   name: 'Occupancy',   unit: '',     icon: 'people',       color: '#6366F1', apiKey: 'peopleInRoom',decimalPlaces: 0 },
+  { id: 'iaq', name: 'Indoor Air Quality', unit: 'AQI', icon: 'cloud', color: '#ffa200ff', apiKey: 'iaq', decimalPlaces: 0, statusThresholds: { min: 0, max: 100, critical: 150 } },
 ];
 
 const DEFAULT_CONFIG: Config = { systemName: 'Environmental Monitor' };
