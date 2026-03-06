@@ -3,7 +3,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { API_BASE, API_KEY } from '../../config';
 import {
   AccessibilityInfo,
   ActivityIndicator,
@@ -18,6 +17,7 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
+import { API_BASE, API_KEY } from '../../config';
 
 const API_ENDPOINTS = {
   NODES: '/node/list',
@@ -27,8 +27,6 @@ const API_ENDPOINTS = {
   ALERTS_CLEAR: '/alerts/clear',
   ALERTS_SETTINGS_GET: '/alerts/settings',
   ALERTS_SETTINGS_POST: '/alerts/settings',
-
-  // ✅ NEW (Sprint 3): backend endpoint to trigger a custom alert
   ALERTS_TRIGGER: '/alerts/manual',
 };
 
@@ -164,6 +162,35 @@ function clampNum(v: number, min: number, max: number) {
   return Math.max(min, Math.min(max, v));
 }
 
+function frontendAlertString(t: string): string {
+  switch (t) {
+    case 'TEMPERATURE':
+      return 'Temperature';
+    case 'HUMIDITY':
+      return 'Humidity';
+    case 'PRESSURE':
+      return 'Pressure';
+    case 'NOISE':
+      return 'Noise';
+    case 'LIGHT':
+      return 'Light';
+    case 'BATTERY_LOW':
+      return 'Battery low';
+    case 'HEARTBEAT_MISSED':
+      return 'Heartbeat missed';
+    case 'OCCUPANCY_HIGH':
+      return 'Occupancy high';
+    case 'BATTERY':
+      return 'Battery';
+    case 'HEARTBEAT':
+      return 'Heartbeat';
+    case 'ROOM_LIMIT':
+      return 'Room limit';
+    default:
+      return t;
+  }
+}
+
 // Maps backend alert shape → AlertLogItem[]
 function mapBackendAlertsToLog(
   nodeId: string,
@@ -187,6 +214,9 @@ function mapBackendAlertsToLog(
 
       const id = String(a?.alertId || a?.id || `${typeKey}_${createdAt}`);
 
+      const rawMessage = a?.message ? String(a.message) : `${typeKey} ${severity === 'CRITICAL' ? 'critical' : 'warning'}`;
+      const prettyMessage = rawMessage.replace(new RegExp(typeKey, 'gi'), frontendAlertString(typeKey));
+
       out.push({
         id,
         nodeId,
@@ -194,7 +224,7 @@ function mapBackendAlertsToLog(
         type: typeKey as AlertType,
         severity,
         status,
-        message: a?.message ? String(a.message) : `${typeKey} ${severity === 'CRITICAL' ? 'critical' : 'warning'}`,
+        message: prettyMessage,
         createdAt,
       });
     }
@@ -1014,7 +1044,7 @@ export default function AlertsScreen() {
                   <View style={[styles.badge, { backgroundColor: sev.bg, borderColor: sev.border }]}>
                     <Text style={[styles.badgeText, { color: sev.text }]}>{a.severity}</Text>
                   </View>
-                  <Text style={[styles.alertType, dynamic.metaText]}>{a.type}</Text>
+                  <Text style={[styles.alertType, dynamic.metaText]}>{frontendAlertString(a.type)}</Text>
                   <Text style={[styles.alertTime, dynamic.metaText]}>{new Date(a.createdAt).toLocaleTimeString()}</Text>
                 </View>
 
@@ -1079,7 +1109,7 @@ export default function AlertsScreen() {
                   <Text style={[styles.logMeta, dynamic.metaText]}>{new Date(a.createdAt).toLocaleString()}</Text>
                 </View>
 
-                <Text style={[styles.logType, dynamic.metaText]}>{a.type}</Text>
+                <Text style={[styles.logType, dynamic.metaText]}>{frontendAlertString(a.type)}</Text>
                 <Text style={[styles.logMessage, dynamic.bodyText]}>{a.message}</Text>
 
                 <View style={styles.actionRow}>
@@ -1130,22 +1160,28 @@ export default function AlertsScreen() {
         <View style={dynamic.divider} />
 
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-          {(['ROOM_LIMIT', 'HEARTBEAT', 'BATTERY', 'NOISE', 'TEMPERATURE'] as AlertType[]).map((tpe) => {
-            const active = manualType === tpe;
+          {[
+            { value: 'ROOM_LIMIT', label: 'Room limit' },
+            { value: 'HEARTBEAT', label: 'Heartbeat' },
+            { value: 'BATTERY', label: 'Battery low' },
+            { value: 'NOISE', label: 'Noise' },
+            { value: 'TEMPERATURE', label: 'Temperature' },
+          ].map((opt) => {
+            const active = manualType === opt.value;
             return (
               <TouchableOpacity
-                key={tpe}
-                onPress={() => setManualType(tpe)}
+                key={opt.value}
+                onPress={() => setManualType(opt.value as any)}
                 style={[
                   styles.pill,
                   { backgroundColor: active ? '#2563EB' : isDarkMode ? '#374151' : '#F3F4F6' },
                 ]}
                 accessibilityRole="button"
-                accessibilityLabel={`Select manual alert type ${tpe}`}
+                accessibilityLabel={`Select manual alert type ${opt.label}`}
                 accessibilityState={{ selected: active }}
               >
                 <Text style={{ color: active ? '#FFFFFF' : isDarkMode ? '#E5E7EB' : '#111827', fontWeight: '700' }}>
-                  {tpe}
+                  {opt.label}
                 </Text>
               </TouchableOpacity>
             );

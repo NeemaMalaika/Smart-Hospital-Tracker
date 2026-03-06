@@ -3,7 +3,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { API_BASE, API_KEY } from '../../config';
 import {
   ActivityIndicator,
   Alert,
@@ -16,13 +15,14 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View,
   useWindowDimensions,
+  View,
 } from 'react-native';
-import { changeLanguage, SupportedLanguage } from '../../i18n';
-import { useAuthenticatedAPI } from '../../hooks/useAuthenticatedAPI';
-import ApiService from '../../services/api';
 import Toast from '../../components/toast';
+import { API_BASE } from '../../config';
+import { useAuthenticatedAPI } from '../../hooks/useAuthenticatedAPI';
+import { changeLanguage, SupportedLanguage } from '../../i18n';
+import ApiService from '../../services/api';
 
 const API_ENDPOINTS = { NODES: '/node/list', NODE_CONFIG: '/node/config', NODE_INFO: '/public-display/info' };
 
@@ -439,10 +439,7 @@ export default function ConfigScreen() {
             <Ionicons name="refresh" size={22} color={isDarkMode ? '#93C5FD' : '#2563EB'} />
           </TouchableOpacity>
           <TouchableOpacity
-            onPress={() => Alert.alert(t('admin.logout'), t('admin.logoutConfirm'), [
-              { text: t('common.cancel'), style: 'cancel' },
-              { text: t('admin.logout'), style: 'destructive', onPress: async () => { await ApiService.logout(); router.replace('/(tabs)/login'); } },
-            ])}
+            onPress={async () => { await ApiService.logout(); router.replace('/(tabs)/login') }}
             style={styles.iconButton}>
             <Ionicons name="log-out-outline" size={22} color={isDarkMode ? '#F87171' : '#DC2626'} />
           </TouchableOpacity>
