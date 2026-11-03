@@ -15,7 +15,7 @@ Temperature, humidity, light, noise, pressure, air quality and staff location, o
   <img src="docs/screens/map-mobile.jpg" height="440" alt="Map View on a phone, showing a live hospital floor plan with a staff member's location">
 </p>
 
-**My role:** Lead frontend developer and UX designer in a 4-person team. I owned the app's UI design, the React Native frontend, accessibility, internationalisation and user testing. The sensor hardware, backend API and Grafana dashboards were built by teammates.
+**My role:** Lead frontend developer and UX designer in a 4-person team. I owned the app's UI design, the React Native frontend, accessibility, internationalisation and user testing. One other teammate and I worked on the backend API and the sensor hardware, and Grafana dashboards were built by other teammates.
 
 **Context:** Lancaster University group project (SCC312) · 3 Agile sprints · Jan–Mar 2026
 
