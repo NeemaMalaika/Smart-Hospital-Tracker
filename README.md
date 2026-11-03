@@ -231,4 +231,4 @@ Set the backend address in `config.ts`. Without the sensor network running, the 
 
 ## Contact
 
-[Portfolio](https://your-site) · [LinkedIn](https://linkedin.com/in/your-profile) · your@email.com
+ [https://www.linkedin.com/in/neema-malaika-mumma-8a2ab12a2/) · malaikamumma@gmail.com
