@@ -10,9 +10,9 @@ Temperature, humidity, light, noise, pressure, air quality and staff location, o
 ![WCAG 2.1 AA](https://img.shields.io/badge/WCAG_2.1-AA-2E7D32?style=flat)
 
 <p align="center">
-  <img src="docs/screens/summary-mobile.png" height="340" alt="Summary dashboard on a phone in dark mode, showing sensor cards with status badges">
-  &nbsp;
-  <img src="docs/screens/public-display.png" height="340" alt="Public display for a zoo enclosure showing live readings next to an information card">
+  <img src="docs/screens/monitor-mobile.jpg" height="440" alt="Monitor screen on a phone in dark mode, showing the current temperature and a 24-hour chart">
+  &nbsp;&nbsp;
+  <img src="docs/screens/map-mobile.jpg" height="440" alt="Map View on a phone, showing a live hospital floor plan with a staff member's location">
 </p>
 
 **My role:** Lead frontend developer and UX designer in a 4-person team. I owned the app's UI design, the React Native frontend, accessibility, internationalisation and user testing. The sensor hardware, backend API and Grafana dashboards were built by teammates.
@@ -231,4 +231,4 @@ Set the backend address in `config.ts`. Without the sensor network running, the 
 
 ## Contact
 
- [https://www.linkedin.com/in/neema-malaika-mumma-8a2ab12a2/) · malaikamumma@gmail.com
+[Portfolio](https://your-site) · [LinkedIn](https://linkedin.com/in/your-profile) · your@email.com
